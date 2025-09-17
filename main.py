@@ -1,7 +1,7 @@
 # main.py — بحث عربي مجاني + تلخيص ذكي + أسعار المتاجر + صور + تقييم + PDF + نسخ + وضع ليلي
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
-from duckduckgo_search import DDGS
+from ddgs import DDGS
 from readability import Document
 from bs4 import BeautifulSoup
 from diskcache import Cache
@@ -82,20 +82,36 @@ def bump_score(domain: str, delta: int):
     save_scores(scores)
 
 # -------- جلب الصفحات --------
-def fetch(url: str, timeout=10):
+def fetch(url: str, timeout=3):
     r = requests.get(url, headers=HDRS, timeout=timeout)
     r.raise_for_status()
     return r.text
 
-def fetch_and_extract(url: str, timeout=10):
+def fetch_and_extract(url: str, timeout=3):
     try:
         html_text = fetch(url, timeout=timeout)
-        doc = Document(html_text)
-        content_html = doc.summary()
+        if not html_text or len(html_text.strip()) < 100:
+            return "", ""
+        
+        # تنظيف HTML من المحتوى الضار قبل المعالجة
+        html_text = html_text.replace('\x00', '').replace('\x0b', '').replace('\x0c', '')
+        html_text = ''.join(char for char in html_text if ord(char) >= 32 or char in '\n\r\t')
+        
+        try:
+            doc = Document(html_text)
+            content_html = doc.summary()
+        except:
+            # إذا فشل readability، استخدم BeautifulSoup مباشرة
+            soup = BeautifulSoup(html_text, "html.parser")
+            # أخذ النص من الفقرات الرئيسية
+            content = soup.find_all(['p', 'article', 'div'], limit=10)
+            content_html = ''.join(str(tag) for tag in content)
+        
         soup = BeautifulSoup(content_html, "html.parser")
         text = soup.get_text(separator="\n")
         return html.unescape(text), html_text
-    except Exception:
+    except Exception as e:
+        print(f"error getting summary: {e}")
         return "", ""
 
 # -------- استخراج الأسعار --------
@@ -112,7 +128,7 @@ def extract_price_from_html(html_text: str):
 
 def try_get_price(url: str):
     try:
-        h = fetch(url, timeout=8)
+        h = fetch(url, timeout=3)
         price = extract_price_from_html(h)
         if price:
             return price
@@ -123,7 +139,7 @@ def try_get_price(url: str):
             if val and re.search(r"[\d\.,]", val):
                 return val.strip()
         time.sleep(0.3)
-        h2 = fetch(url, timeout=8)
+        h2 = fetch(url, timeout=3)
         return extract_price_from_html(h2)
     except Exception:
         return ""
@@ -392,7 +408,7 @@ async def handle_prices(q: str, return_plain=False):
             ckey = "purl:" + url
             html_page = cache.get(ckey)
             if html_page is None:
-                html_page = fetch(url, timeout=8)
+                html_page = fetch(url, timeout=3)
                 if html_page and len(html_page) < 1_500_000:
                     cache.set(ckey, html_page, expire=60*60*6)
             price = extract_price_from_html(html_page or "")
@@ -522,7 +538,7 @@ def handle_prices_sync(q: str):
         title = r.get("title") or ""
         price = ""
         try:
-            h = fetch(url, timeout=6)
+            h = fetch(url, timeout=3)
             price = extract_price_from_html(h)
         except Exception:
             pass

@@ -3,9 +3,10 @@ uvicorn
 requests
 readability-lxml
 beautifulsoup4
-duckduckgo_search
 python-multipart
 diskcache
 fpdf2
 fpdf
 readability
+ddgs
+duckduckgo-search
