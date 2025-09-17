@@ -1,5 +1,13 @@
 fastapi
 uvicorn
-fastapi
-uvicorn
+requests
+readability-lxml
+beautifulsoup4
+duckduckgo_search
 python-multipart
+diskcache
+beautifulsoup4
+diskcache
+duckduckgo_search
+readability
+requests
