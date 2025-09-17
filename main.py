@@ -388,6 +388,9 @@ HTML_TEMPLATE = """
     .imggrid {{ display:grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap:10px; }}
     .imgcard {{ overflow:hidden; border-radius:10px; border:1px solid #334155; }}
     .imgcard img {{ width:100%; height:140px; object-fit:cover; display:block; }}
+    .smart-answer {{ background:linear-gradient(135deg, var(--summary), var(--card)); border-left:4px solid var(--accent); font-weight:500; }}
+    .btn-detail {{ background:var(--accent); color:white; padding:8px 16px; border-radius:8px; border:none; margin-top:10px; cursor:pointer; }}
+    .btn-detail:hover {{ opacity:0.8; }}
   </style>
 </head>
 <body>
@@ -400,6 +403,7 @@ HTML_TEMPLATE = """
     <div class="col"><input type="text" name="question" placeholder="اكتب سؤالك أو اسم/طراز السلعة..." required /></div>
     <div class="col">
       <select name="mode">
+        <option value="smart">🤖 بحث ذكي (بسام AI)</option>
         <option value="summary">بحث & تلخيص</option>
         <option value="prices">بحث أسعار (متاجر)</option>
         <option value="images">بحث صور</option>
@@ -433,6 +437,17 @@ async function copyAnswer(text){{
     await navigator.clipboard.writeText(text || "");
     alert("تم نسخ الإجابة!");
   }}catch(e){{ alert("تعذّر النسخ. ربما المتصفح يمنعه."); }}
+}}
+
+// طلب تفاصيل أكثر
+function showMore(){{
+  const form = document.querySelector('form');
+  const detailedField = document.createElement('input');
+  detailedField.type = 'hidden';
+  detailedField.name = 'detailed';
+  detailedField.value = 'true';
+  form.appendChild(detailedField);
+  form.submit();
 }}
 
 // إرسال تقييم
@@ -506,7 +521,7 @@ async def form_get():
     return HTML_TEMPLATE.format(result_panel="")
 
 @app.post("/", response_class=HTMLResponse)
-async def form_post(question: str = Form(...), mode: str = Form("summary")):
+async def form_post(question: str = Form(...), mode: str = Form("summary"), detailed: bool = Form(False)):
     q = (question or "").strip()
     if not q:
         return HTML_TEMPLATE.format(result_panel="")
@@ -515,8 +530,10 @@ async def form_post(question: str = Form(...), mode: str = Form("summary")):
         panel, answer_text = await handle_prices(q, return_plain=True)
     elif mode == "images":
         panel, answer_text = await handle_images(q)
+    elif mode == "smart":
+        panel, answer_text = await handle_summary(q, return_plain=True, smart_mode=True, detailed=detailed)
     else:
-        panel, answer_text = await handle_summary(q, return_plain=True)
+        panel, answer_text = await handle_summary(q, return_plain=True, smart_mode=False, detailed=detailed)
 
     # شريط أدوات نسخ + PDF
     tools = make_toolbar_copy_pdf(q, mode, answer_text or "")
@@ -528,7 +545,7 @@ async def feedback(domain: str = Form(...), delta: int = Form(...)):
     return JSONResponse({"ok": True, "domain": domain, "score": get_scores().get(domain, 0)})
 
 # -------- وضع: بحث & تلخيص عربي --------
-async def handle_summary(q: str, return_plain=False):
+async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=False):
     cache_key = "sum:" + q
     cached = cache.get(cache_key)
     if cached and not return_plain:
@@ -578,6 +595,40 @@ async def handle_summary(q: str, return_plain=False):
         cache.set(cache_key, panel, expire=60*5)
         return (panel, "") if return_plain else (panel, None)
 
+    # استخدام المحرك الذكي في الوضع الذكي
+    if smart_mode and combined_chunks:
+        # إعداد البيانات للمحرك الذكي
+        search_results = []
+        for r, chunk in zip(results[:len(combined_chunks)], combined_chunks):
+            search_results.append({
+                'title': r.get("title", ""),
+                'content': chunk,
+                'url': r.get("href", "")
+            })
+        
+        # تحليل السؤال وتوليد الإجابة الذكية
+        question_analysis = smart_engine.analyze_question(q)
+        smart_answer = smart_engine.generate_smart_answer(
+            question_analysis, 
+            search_results, 
+            detailed or question_analysis.get('needs_detail', False)
+        )
+        
+        # عرض الإجابة الذكية
+        panel = (
+            f'<div style="margin-top:18px;">'
+            f'<h3>🤖 إجابة بسام الذكي:</h3><div class="card smart-answer">{html.escape(smart_answer)}</div>'
+            f'<h3 style="margin-top:12px;">المصادر:</h3>'
+            f'{"".join(source_cards)}'
+            f'<div style="margin-top:12px;">'
+            f'<button onclick="showMore()" class="btn-detail">📖 أريد تفاصيل أكثر</button>'
+            f'</div>'
+            f'</div>'
+        )
+        cache.set(cache_key + "_smart", panel, expire=60*60)
+        return (panel, smart_answer) if return_plain else (panel, None)
+    
+    # الوضع العادي
     final_answer = " ".join(combined_chunks)
     panel = (
         f'<div style="margin-top:18px;">'
