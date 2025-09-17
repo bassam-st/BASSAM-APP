@@ -439,14 +439,31 @@ async function copyAnswer(text){{
   }}catch(e){{ alert("تعذّر النسخ. ربما المتصفح يمنعه."); }}
 }}
 
-// طلب تفاصيل أكثر
+// طلب تفاصيل أكثر (آمن)
 function showMore(){{
   const form = document.querySelector('form');
+  const button = event.target;
+  
+  // إضافة السؤال الأصلي من data-attribute الآمن
+  const questionField = document.querySelector('input[name="question"]');
+  const originalQuestion = button.dataset.question;
+  if (questionField && originalQuestion) {{
+    questionField.value = originalQuestion;
+  }}
+  
+  // إضافة وضع التفصيل
   const detailedField = document.createElement('input');
   detailedField.type = 'hidden';
   detailedField.name = 'detailed';
   detailedField.value = 'true';
   form.appendChild(detailedField);
+  
+  // إضافة وضع ذكي
+  const modeField = document.querySelector('select[name="mode"]');
+  if (modeField) {{
+    modeField.value = 'smart';
+  }}
+  
   form.submit();
 }}
 
@@ -614,14 +631,14 @@ async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=
             detailed or question_analysis.get('needs_detail', False)
         )
         
-        # عرض الإجابة الذكية
+        # عرض الإجابة الذكية مع أمان كامل
         panel = (
             f'<div style="margin-top:18px;">'
             f'<h3>🤖 إجابة بسام الذكي:</h3><div class="card smart-answer">{html.escape(smart_answer)}</div>'
             f'<h3 style="margin-top:12px;">المصادر:</h3>'
             f'{"".join(source_cards)}'
             f'<div style="margin-top:12px;">'
-            f'<button onclick="showMore()" class="btn-detail">📖 أريد تفاصيل أكثر</button>'
+            f'<button onclick="showMore()" data-question="{html.escape(q, quote=True)}" class="btn-detail">📖 أريد تفاصيل أكثر</button>'
             f'</div>'
             f'</div>'
         )
