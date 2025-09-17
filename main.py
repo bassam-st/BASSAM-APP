@@ -34,6 +34,219 @@ AR_RE = re.compile(r"[اأإآء-ي]")
 def is_arabic(text: str, min_ar_chars: int = 30) -> bool:
     return len(AR_RE.findall(text or "")) >= min_ar_chars
 
+# -------- النظام الذكي للإجابة على الأسئلة --------
+class SmartAnswerEngine:
+    def __init__(self):
+        self.question_types = {
+            'ما هو': 'definition',
+            'ما هي': 'definition', 
+            'كيف': 'how_to',
+            'لماذا': 'why',
+            'متى': 'when',
+            'أين': 'where',
+            'من': 'who',
+            'كم': 'quantity',
+            'هل': 'yes_no'
+        }
+        
+    def analyze_question(self, question: str):
+        """تحليل السؤال لفهم نوعه والمعلومات المطلوبة"""
+        question_lower = question.strip().lower()
+        
+        # تحديد نوع السؤال
+        question_type = 'general'
+        for keyword, qtype in self.question_types.items():
+            if question_lower.startswith(keyword):
+                question_type = qtype
+                break
+        
+        # استخراج الكلمات المفتاحية
+        keywords = self.extract_keywords(question)
+        
+        # تحديد إذا كان السؤال يحتاج تفصيل
+        needs_detail = any(word in question_lower for word in ['اشرح', 'فصل', 'وضح', 'بالتفصيل'])
+        
+        return {
+            'type': question_type,
+            'keywords': keywords,
+            'needs_detail': needs_detail,
+            'original': question
+        }
+    
+    def extract_keywords(self, text: str):
+        """استخراج الكلمات المفتاحية من النص"""
+        # إزالة كلمات الاستفهام وحروف الجر
+        stop_words = {'ما', 'هو', 'هي', 'كيف', 'لماذا', 'متى', 'أين', 'من', 'كم', 'هل', 
+                     'في', 'على', 'إلى', 'من', 'عن', 'مع', 'ضد', 'تحت', 'فوق'}
+        
+        words = text.split()
+        keywords = [word.strip('؟،.!') for word in words if word not in stop_words and len(word) > 2]
+        return keywords[:5]  # أهم 5 كلمات
+        
+    def generate_smart_answer(self, question_analysis, search_results, detailed=False):
+        """توليد إجابة ذكية مختصرة من نتائج البحث"""
+        if not search_results:
+            return "لم أتمكن من العثور على إجابة مناسبة لسؤالك. حاول إعادة صياغة السؤال."
+            
+        # جمع المعلومات من جميع المصادر
+        all_content = []
+        sources = []
+        
+        for result in search_results:
+            if result.get('content'):
+                all_content.append(result['content'])
+                sources.append(result.get('title', 'مصدر'))
+        
+        if not all_content:
+            return "لم أجد معلومات كافية للإجابة على سؤالك."
+        
+        # تحليل نوع السؤال وتوليد إجابة مناسبة
+        answer = self.create_targeted_answer(question_analysis, all_content, detailed)
+        
+        # إضافة مصادر الإجابة
+        if len(sources) > 0:
+            source_list = ", ".join(sources[:3])  # أول 3 مصادر
+            answer += f"\n\nالمصادر: {source_list}"
+            
+        return answer
+    
+    def create_targeted_answer(self, analysis, content_list, detailed):
+        """إنشاء إجابة مستهدفة حسب نوع السؤال"""
+        combined_content = " ".join(content_list)
+        question_type = analysis['type']
+        
+        if question_type == 'definition':
+            return self.answer_definition(combined_content, detailed)
+        elif question_type == 'how_to':
+            return self.answer_how_to(combined_content, detailed)
+        elif question_type == 'why':
+            return self.answer_why(combined_content, detailed)
+        elif question_type == 'when':
+            return self.answer_when(combined_content, detailed)
+        elif question_type == 'where':
+            return self.answer_where(combined_content, detailed)
+        elif question_type == 'who':
+            return self.answer_who(combined_content, detailed)
+        else:
+            return self.answer_general(combined_content, detailed)
+    
+    def answer_definition(self, content, detailed):
+        """إجابة أسئلة التعريف (ما هو/ما هي)"""
+        sentences = self.split_into_sentences(content)
+        
+        # البحث عن جمل التعريف
+        definition_sentences = []
+        for sentence in sentences:
+            if any(word in sentence for word in ['هو', 'هي', 'يعرف', 'يُعرّف', 'مصطلح', 'مفهوم']):
+                definition_sentences.append(sentence)
+        
+        if not definition_sentences:
+            definition_sentences = sentences[:2]  # أول جملتين
+        
+        if detailed:
+            return " ".join(definition_sentences[:4])  # 4 جمل للتفصيل
+        else:
+            return definition_sentences[0] if definition_sentences else sentences[0]
+    
+    def answer_how_to(self, content, detailed):
+        """إجابة أسئلة الطريقة (كيف)"""
+        sentences = self.split_into_sentences(content)
+        
+        # البحث عن جمل الخطوات والطرق
+        how_sentences = []
+        for sentence in sentences:
+            if any(word in sentence for word in ['خطوة', 'طريقة', 'كيفية', 'يمكن', 'أولاً', 'ثانياً', 'عبر', 'من خلال']):
+                how_sentences.append(sentence)
+        
+        if not how_sentences:
+            how_sentences = sentences[:3]
+        
+        if detailed:
+            return " ".join(how_sentences[:5])
+        else:
+            return " ".join(how_sentences[:2])
+    
+    def answer_why(self, content, detailed):
+        """إجابة أسئلة السبب (لماذا)"""
+        sentences = self.split_into_sentences(content)
+        
+        why_sentences = []
+        for sentence in sentences:
+            if any(word in sentence for word in ['سبب', 'لأن', 'نتيجة', 'بسبب', 'يؤدي', 'يسبب', 'السبب']):
+                why_sentences.append(sentence)
+        
+        if not why_sentences:
+            why_sentences = sentences[:2]
+        
+        if detailed:
+            return " ".join(why_sentences[:4])
+        else:
+            return why_sentences[0] if why_sentences else sentences[0]
+    
+    def answer_when(self, content, detailed):
+        """إجابة أسئلة الوقت (متى)"""
+        sentences = self.split_into_sentences(content)
+        
+        when_sentences = []
+        for sentence in sentences:
+            if any(word in sentence for word in ['عام', 'تاريخ', 'يوم', 'شهر', 'قبل', 'بعد', 'في', 'منذ']):
+                when_sentences.append(sentence)
+        
+        if not when_sentences:
+            when_sentences = sentences[:2]
+        
+        return " ".join(when_sentences[:3 if detailed else 1])
+    
+    def answer_where(self, content, detailed):
+        """إجابة أسئلة المكان (أين)"""
+        sentences = self.split_into_sentences(content)
+        
+        where_sentences = []
+        for sentence in sentences:
+            if any(word in sentence for word in ['في', 'بـ', 'تقع', 'يقع', 'موقع', 'مكان', 'دولة', 'مدينة']):
+                where_sentences.append(sentence)
+        
+        if not where_sentences:
+            where_sentences = sentences[:2]
+        
+        return " ".join(where_sentences[:3 if detailed else 1])
+    
+    def answer_who(self, content, detailed):
+        """إجابة أسئلة الهوية (من)"""
+        sentences = self.split_into_sentences(content)
+        
+        who_sentences = []
+        for sentence in sentences:
+            if any(word in sentence for word in ['شخص', 'رجل', 'امرأة', 'عالم', 'مؤلف', 'رئيس', 'مدير']):
+                who_sentences.append(sentence)
+        
+        if not who_sentences:
+            who_sentences = sentences[:2]
+        
+        return " ".join(who_sentences[:3 if detailed else 1])
+    
+    def answer_general(self, content, detailed):
+        """إجابة عامة للأسئلة الأخرى"""
+        sentences = self.split_into_sentences(content)
+        
+        if detailed:
+            return " ".join(sentences[:5])
+        else:
+            return " ".join(sentences[:2])
+    
+    def split_into_sentences(self, text):
+        """تقسيم النص إلى جمل"""
+        sentences = re.split(r'[.!؟\?\n]+', text)
+        clean_sentences = []
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if len(sentence) > 20:  # جمل ذات معنى
+                clean_sentences.append(sentence)
+        return clean_sentences[:10]  # أول 10 جمل فقط
+
+# إنشاء محرك الإجابة الذكية
+smart_engine = SmartAnswerEngine()
+
 STOP = set("""من في على إلى عن أن إن بأن كان تكون يكون التي الذي الذين هذا هذه ذلك هناك ثم حيث كما اذا إذا أو و يا ما مع قد لم لن بين لدى لدى، عند بعد قبل دون غير حتى كل أي كيف لماذا متى هل الى ال""".split())
 
 def tokenize(s: str):
