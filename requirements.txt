@@ -6,8 +6,6 @@ beautifulsoup4
 duckduckgo_search
 python-multipart
 diskcache
-beautifulsoup4
-diskcache
-duckduckgo_search
+fpdf2
+fpdf
 readability
-requests
