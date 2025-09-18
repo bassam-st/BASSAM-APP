@@ -447,8 +447,29 @@ HTML_TEMPLATE = """
 <html lang="ar" dir="rtl" data-theme="light">
 <head>
   <meta charset="utf-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover"/>
   <title>بسام الذكي - مجاني</title>
+  
+  <!-- PWA Meta Tags -->
+  <meta name="application-name" content="بسام الذكي"/>
+  <meta name="description" content="محرك بحث ذكي باللغة العربية مع إجابات مجانية وتلخيص فوري"/>
+  <meta name="theme-color" content="#4a90e2"/>
+  <meta name="background-color" content="#ffffff"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="default"/>
+  <meta name="apple-mobile-web-app-title" content="بسام الذكي"/>
+  <meta name="msapplication-TileColor" content="#4a90e2"/>
+  <meta name="msapplication-tap-highlight" content="no"/>
+  
+  <!-- PWA Manifest -->
+  <link rel="manifest" href="/manifest.json"/>
+  
+  <!-- Apple Touch Icons -->
+  <link rel="apple-touch-icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTkyIiBoZWlnaHQ9IjE5MiIgdmlld0JveD0iMCAwIDE5MiAxOTIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGNpcmNsZSBjeD0iOTYiIGN5PSI5NiIgcj0iOTYiIGZpbGw9IiM0YTkwZTIiLz48dGV4dCB4PSI5NiIgeT0iMTEwIiBmaWxsPSJ3aGl0ZSIgZm9udC1zaXplPSI2NCIgZm9udC1mYW1pbHk9IkFyaWFsIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7YqDwvdGV4dD48L3N2Zz4="/>
+  
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIHZpZXdCb3g9IjAgMCAzMiAzMiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48Y2lyY2xlIGN4PSIxNiIgY3k9IjE2IiByPSIxNiIgZmlsbD0iIzRhOTBlMiIvPjx0ZXh0IHg9IjE2IiB5PSIyMCIgZmlsbD0id2hpdGUiIGZvbnQtc2l6ZT0iMTYiIGZvbnQtZmFtaWx5PSJBcmlhbCIgdGV4dC1hbmNob3I9Im1pZGRsZSI+2KI8L3RleHQ+PC9zdmc+"/>
   <style>
     :root {{
       --bg:#ffffff; --fg:#111; --muted:#666; --card:#f7f7f7; --accent:#0b63c6; --summary:#eef6ff;
@@ -475,11 +496,80 @@ HTML_TEMPLATE = """
     .smart-answer {{ background:linear-gradient(135deg, var(--summary), var(--card)); border-left:4px solid var(--accent); font-weight:500; }}
     .btn-detail {{ background:var(--accent); color:white; padding:8px 16px; border-radius:8px; border:none; margin-top:10px; cursor:pointer; }}
     .btn-detail:hover {{ opacity:0.8; }}
+    
+    /* PWA & Mobile Optimizations */
+    @media (max-width: 768px) {{
+      body {{ padding: 12px; }}
+      .row {{ flex-direction: column; }}
+      .col {{ min-width: auto; }}
+      input[type=text], select {{ font-size: 16px; padding: 14px; }}
+      button {{ padding: 12px 20px; font-size: 16px; }}
+      h1 {{ font-size: 1.5rem; }}
+      .toolbar {{ flex-direction: column; align-items: stretch; }}
+      .imggrid {{ grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }}
+      .card {{ padding: 10px; }}
+    }}
+    
+    @media (max-width: 480px) {{
+      body {{ padding: 8px; }}
+      .imggrid {{ grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); }}
+      .imgcard img {{ height: 100px; }}
+    }}
+    
+    /* PWA Install Button */
+    .install-btn {{ 
+      background: linear-gradient(135deg, #4a90e2, #637dfc); 
+      color: white; 
+      border: none; 
+      padding: 12px 20px; 
+      border-radius: 10px; 
+      font-weight: bold;
+      display: none;
+      cursor: pointer;
+      box-shadow: 0 4px 12px rgba(74, 144, 226, 0.3);
+    }}
+    .install-btn:hover {{ transform: translateY(-2px); }}
+    
+    /* Loading Spinner */
+    .loading {{ 
+      display: inline-block; 
+      width: 20px; 
+      height: 20px; 
+      border: 3px solid #f3f3f3; 
+      border-top: 3px solid var(--accent); 
+      border-radius: 50%; 
+      animation: spin 1s linear infinite; 
+    }}
+    @keyframes spin {{ 0% {{ transform: rotate(0deg); }} 100% {{ transform: rotate(360deg); }} }}
+    
+    /* Offline Indicator */
+    .offline-indicator {{ 
+      position: fixed; 
+      top: 10px; 
+      right: 10px; 
+      background: #ff4444; 
+      color: white; 
+      padding: 8px 12px; 
+      border-radius: 8px; 
+      font-size: 14px; 
+      display: none; 
+      z-index: 1000;
+    }}
+    
+    /* Smooth Transitions */
+    * {{ transition: background-color 0.3s ease, color 0.3s ease; }}
+    
+    /* Better Touch Targets */
+    button, a, input, select {{ min-height: 44px; }}
   </style>
 </head>
 <body>
+  <!-- Offline Indicator -->
+  <div class="offline-indicator" id="offlineIndicator">🔄 وضع عدم الاتصال</div>
+  
   <div class="toolbar">
     <h1 style="flex:1;">بسام الذكي — بحث / تلخيص / أسعار / صور (مجاني)</h1>
+    <button class="install-btn" id="installBtn" onclick="installPWA()">📱 تثبيت التطبيق</button>
     <button onclick="toggleTheme()" title="الوضع الليلي/النهاري">🌓 تبديل الوضع</button>
   </div>
 
@@ -561,6 +651,130 @@ async function sendFeedback(domain, delta){{
     if(r.ok){{ /* اختياري: رسالة */ }}
   }}catch(e){{ console.log(e); }}
 }}
+
+// PWA Functionality
+let deferredPrompt;
+let isOnline = navigator.onLine;
+
+// تسجيل Service Worker
+if ('serviceWorker' in navigator) {{
+  window.addEventListener('load', async () => {{
+    try {{
+      const registration = await navigator.serviceWorker.register('/service-worker.js');
+      console.log('✅ Service Worker registered:', registration.scope);
+      
+      // التحقق من التحديثات
+      registration.addEventListener('updatefound', () => {{
+        const newWorker = registration.installing;
+        newWorker.addEventListener('statechange', () => {{
+          if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {{
+            showUpdateNotification();
+          }}
+        }});
+      }});
+      
+    }} catch (error) {{
+      console.error('❌ Service Worker registration failed:', error);
+    }}
+  }});
+}}
+
+// معالجة تثبيت PWA
+window.addEventListener('beforeinstallprompt', (e) => {{
+  e.preventDefault();
+  deferredPrompt = e;
+  document.getElementById('installBtn').style.display = 'block';
+}});
+
+// تثبيت التطبيق
+async function installPWA() {{
+  if (!deferredPrompt) {{
+    alert('التطبيق مثبت بالفعل أو غير قابل للتثبيت');
+    return;
+  }}
+  
+  const result = await deferredPrompt.prompt();
+  console.log('PWA install result:', result);
+  
+  if (result.outcome === 'accepted') {{
+    console.log('✅ PWA تم تثبيته');
+    document.getElementById('installBtn').style.display = 'none';
+  }}
+  
+  deferredPrompt = null;
+}}
+
+// مراقبة حالة الاتصال
+function updateOnlineStatus() {{
+  const indicator = document.getElementById('offlineIndicator');
+  if (navigator.onLine) {{
+    indicator.style.display = 'none';
+    if (!isOnline) {{
+      // عودة الاتصال
+      console.log('🌐 الاتصال متوفر مرة أخرى');
+    }}
+    isOnline = true;
+  }} else {{
+    indicator.style.display = 'block';
+    indicator.textContent = '📴 لا يوجد اتصال بالإنترنت';
+    isOnline = false;
+  }}
+}}
+
+window.addEventListener('online', updateOnlineStatus);
+window.addEventListener('offline', updateOnlineStatus);
+
+// إشعار التحديث
+function showUpdateNotification() {{
+  const updateBanner = document.createElement('div');
+  updateBanner.innerHTML = `
+    <div style="position:fixed; top:0; left:0; right:0; background:#4a90e2; color:white; padding:12px; text-align:center; z-index:9999;">
+      🚀 يتوفر تحديث جديد لبسام الذكي
+      <button onclick="location.reload()" style="margin-right:10px; padding:6px 12px; border:none; border-radius:4px; background:white; color:#4a90e2;">
+        تحديث الآن
+      </button>
+      <button onclick="this.parentElement.remove()" style="margin-right:5px; padding:6px 12px; border:none; border-radius:4px; background:rgba(255,255,255,0.2); color:white;">
+        لاحقاً
+      </button>
+    </div>
+  `;
+  document.body.appendChild(updateBanner);
+}}
+
+// تحسين الأداء - تأجيل تحميل الصور
+if ('IntersectionObserver' in window) {{
+  const imageObserver = new IntersectionObserver((entries) => {{
+    entries.forEach(entry => {{
+      if (entry.isIntersecting) {{
+        const img = entry.target;
+        if (img.dataset.src) {{
+          img.src = img.dataset.src;
+          img.removeAttribute('data-src');
+          imageObserver.unobserve(img);
+        }}
+      }}
+    }});
+  }});
+  
+  // مراقبة الصور عند تحميل المحتوى
+  setTimeout(() => {{
+    document.querySelectorAll('img[data-src]').forEach(img => {{
+      imageObserver.observe(img);
+    }});
+  }}, 100);
+}}
+
+// تحديث الحالة عند تحميل الصفحة
+document.addEventListener('DOMContentLoaded', () => {{
+  updateOnlineStatus();
+  
+  // إخفاء زر التثبيت إذا كان التطبيق مثبتاً
+  if (window.matchMedia('(display-mode: standalone)').matches) {{
+    document.getElementById('installBtn').style.display = 'none';
+  }}
+}});
+
+console.log('🎉 بسام الذكي PWA جاهز للاستخدام!');
 </script>
 </body>
 </html>
@@ -649,6 +863,27 @@ async def form_post(question: str = Form(...), mode: str = Form("summary"), deta
 async def feedback(domain: str = Form(...), delta: int = Form(...)):
     bump_score(domain, int(delta))
     return JSONResponse({"ok": True, "domain": domain, "score": get_scores().get(domain, 0)})
+
+# PWA Routes
+@app.get("/manifest.json")
+async def get_manifest():
+    """خدمة ملف manifest.json للـ PWA"""
+    try:
+        with open("manifest.json", "r", encoding="utf-8") as f:
+            manifest_content = f.read()
+        return Response(content=manifest_content, media_type="application/json")
+    except FileNotFoundError:
+        return JSONResponse({"error": "Manifest not found"}, status_code=404)
+
+@app.get("/service-worker.js")
+async def get_service_worker():
+    """خدمة ملف service worker للـ PWA"""
+    try:
+        with open("service-worker.js", "r", encoding="utf-8") as f:
+            sw_content = f.read()
+        return Response(content=sw_content, media_type="application/javascript")
+    except FileNotFoundError:
+        return Response(content="console.log('Service Worker not found');", media_type="application/javascript")
 
 # -------- وضع: بحث & تلخيص عربي --------
 async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=False):
