@@ -1178,3 +1178,9 @@ def handle_prices_sync(q: str):
 @app.get("/health")
 def health():
     return {"ok": True}
+
+# إضافة endpoint للتعامل مع طلبات /api المستمرة
+@app.head("/api")
+@app.get("/api") 
+async def api_endpoint():
+    return {"status": "active", "message": "بسام الذكي API جاهز"}
