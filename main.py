@@ -29,6 +29,90 @@ MARKET_SITES = [
 
 HDRS = {"User-Agent": "Mozilla/5.0 (compatible; BassamBot/1.2)"}
 
+# -------- نظام الحماية الإسلامي المحسن --------
+# كلمات مناسبة طبياً/تعليمياً/دينياً
+EDUCATIONAL_CONTEXTS = {
+    # سياق طبي
+    'سرطان الثدي', 'سرطان القضيب', 'رضاعة طبيعية', 'فحص طبي', 'تثقيف جنسي', 'صحة المرأة',
+    'أعراض', 'علاج', 'طب', 'صحة', 'تشريح', 'التهاب', 'مرض', 'دواء',
+    'breast cancer', 'breastfeeding', 'medical exam', 'sex education', 'reproductive health',
+    'symptoms', 'treatment', 'medicine', 'health', 'anatomy', 'inflammation', 'disease',
+    
+    # سياق ديني/تعليمي
+    'حكم الزنا', 'حد الزنا', 'فقه', 'دين', 'شريعة', 'إسلام', 'أحكام', 'حدود',
+    'تعليم', 'درس', 'شرح', 'بحث', 'دراسة', 'كتاب', 'مقال', 'موسوعة',
+    'islamic ruling', 'religious education', 'study', 'research', 'lesson', 'encyclopedia'
+}
+
+# أنماط محظورة محسنة مع حدود الكلمات
+PROHIBITED_PATTERNS = [
+    # أنماط عربية (كلمات كاملة فقط)
+    r'\b(إباحي|إباحية|عاهرة|عاهرات|دعارة|شذوذ|زنا|بغاء|فاحشة)\b',
+    r'\b(نيك|نكح|لحس|قضيب|فرج|طيز|بزاز)\b',
+    r'\b(بورن|سكس|عاري|عارية|فاضح|فاضحة)\b',
+    
+    # أنماط إنجليزية مع مقاومة التجاوز  
+    r'\b(porn|xxx|fuck|nude|naked|sexy)\b',
+    r'\b(prostitute|whore|penis|vagina|orgasm|erotic|fetish)\b',
+    r'\b(masturbat\w*)\b',
+    
+    # أنماط مقاومة للتجاوز
+    r's[\W_]*e[\W_]*x(?!tant|agesimal)',  # sex لكن ليس sextant
+    r'p[\W_]*o[\W_]*r[\W_]*n',
+    r'ج[\W_ـ]*ن[\W_ـ]*س',
+    r'س[\W_ـ]*ك[\W_ـ]*س',
+]
+
+# تجميع الأنماط المحظورة مع تحسين الأداء
+PROHIBITED_REGEX = re.compile('|'.join(PROHIBITED_PATTERNS), re.IGNORECASE | re.UNICODE)
+
+def normalize_text(text: str) -> str:
+    """تطبيع النص لإزالة محاولات التجاوز"""
+    # إزالة التشكيل والطاولة العربية
+    text = re.sub(r'[\u064B-\u065F\u0670\u0640]', '', text)
+    # تحويل للأحرف الصغيرة وإزالة المسافات الزائدة
+    text = re.sub(r'\s+', ' ', text.lower().strip())
+    # إزالة علامات الترقيم والرموز
+    text = re.sub(r'[^\w\s]', ' ', text)
+    return text
+
+def is_inappropriate_content(text: str) -> bool:
+    """فحص متقدم للمحتوى غير المناسب مع تجنب الإيجابيات الخاطئة"""
+    if not text or len(text.strip()) < 3:
+        return False
+    
+    # فحص السياق التعليمي/الطبي أولاً
+    text_lower = text.lower()
+    for context in EDUCATIONAL_CONTEXTS:
+        if context in text_lower:
+            return False  # محتوى تعليمي/طبي مقبول
+    
+    # تطبيع النص لمقاومة التجاوز
+    normalized_text = normalize_text(text)
+    
+    # فحص الأنماط المحظورة
+    if PROHIBITED_REGEX.search(normalized_text):
+        return True
+    
+    return False
+
+def get_reminder_message() -> str:
+    """رسالة تذكيرية مهذبة للمستخدم"""
+    return '''
+    <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+                color: white; padding: 20px; border-radius: 10px; text-align: center; margin: 20px 0;">
+        <h3>🕌 تذكير أخوي كريم</h3>
+        <p style="font-size: 16px; line-height: 1.6;">
+            أخي الكريم، بسام الذكي مخصص للأسئلة المفيدة والمعرفة النافعة.<br>
+            تذكر أن الله يراك ويسمعك في كل وقت.<br>
+            <strong>"وَاعْلَمُوا أَنَّ اللَّهَ يَعْلَمُ مَا فِي أَنفُسِكُمْ فَاحْذَرُوهُ"</strong>
+        </p>
+        <p style="margin-top: 15px;">
+            🌟 اطرح أسئلة مفيدة عن العلوم، التقنية، الدين، التاريخ، أو أي موضوع يفيدك ويفيد الآخرين
+        </p>
+    </div>
+    '''
+
 # -------- أدوات اللغة والملخص --------
 AR_RE = re.compile(r"[اأإآء-ي]")
 def is_arabic(text: str, min_ar_chars: int = 30) -> bool:
@@ -543,6 +627,11 @@ async def form_post(question: str = Form(...), mode: str = Form("summary"), deta
     if not q:
         return HTML_TEMPLATE.format(result_panel="")
 
+    # فحص المحتوى غير المناسب
+    if is_inappropriate_content(q):
+        reminder_panel = get_reminder_message()
+        return HTML_TEMPLATE.format(result_panel=reminder_panel)
+
     if mode == "prices":
         panel, answer_text = await handle_prices(q, return_plain=True)
     elif mode == "images":
@@ -570,13 +659,13 @@ async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=
 
     query_ar = q if "بالعربية" in q else (q + " بالعربية")
     with DDGS() as ddgs:
-        results = list(ddgs.text(query_ar, region="xa-ar", safesearch="Moderate", max_results=25)) or []
+        results = list(ddgs.text(query_ar, region="xa-ar", safesearch="Strict", max_results=25)) or []
     if not results:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query_ar, region="sa-ar", safesearch="Moderate", max_results=25)) or []
+            results = list(ddgs.text(query_ar, region="sa-ar", safesearch="Strict", max_results=25)) or []
     if not results:
         with DDGS() as ddgs:
-            results = list(ddgs.text(q, region="xa-ar", safesearch="Moderate", max_results=25)) or []
+            results = list(ddgs.text(q, region="xa-ar", safesearch="Strict", max_results=25)) or []
 
     source_cards, combined_chunks = [], []
     for r in sorted(results, key=lambda it: priority_key(it, "summary")):
