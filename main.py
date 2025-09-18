@@ -366,7 +366,8 @@ def domain_of(url: str):
 
 # -------- نقاط النطاقات (تعلم ذاتي بسيط) --------
 def get_scores():
-    return cache.get("domain_scores", {}) or {}
+    result = cache.get("domain_scores", {})
+    return result if isinstance(result, dict) else {}
 
 def save_scores(scores):
     cache.set("domain_scores", scores, expire=0)
@@ -432,9 +433,13 @@ def try_get_price(url: str):
         soup = BeautifulSoup(h, "html.parser")
         meta_price = soup.find(attrs={"itemprop": "price"}) or soup.find("meta", {"property":"product:price:amount"})
         if meta_price:
-            val = meta_price.get("content") or meta_price.text
-            if val and re.search(r"[\d\.,]", val):
-                return val.strip()
+            val = ""
+            if hasattr(meta_price, 'get') and meta_price.get("content"):
+                val = meta_price.get("content")
+            elif hasattr(meta_price, 'text') and meta_price.text:
+                val = meta_price.text
+            if val and re.search(r"[\d\.,]", str(val)):
+                return str(val).strip()
         time.sleep(0.3)
         h2 = fetch(url, timeout=3)
         return extract_price_from_html(h2)
@@ -917,9 +922,15 @@ async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=
             if txt and len(txt) > 200:
                 cache.set(ckey, (txt, raw), expire=60*60*24)
             val = (txt, raw)
-        page_text, raw_html = val
+        
+        # Safe unpacking of cache value
+        if isinstance(val, (tuple, list)) and len(val) >= 2:
+            page_text, raw_html = val[0], val[1]
+        else:
+            page_text, raw_html = "", ""
 
-        if not page_text or not is_arabic(page_text):
+        # Ensure page_text is a string before processing
+        if not page_text or not isinstance(page_text, str) or not is_arabic(page_text):
             continue
 
         summ = summarize_from_text(page_text, q, max_sentences=3)
