@@ -882,13 +882,29 @@ async def get_manifest():
 
 @app.get("/service-worker.js")
 async def get_service_worker():
-    """خدمة ملف service worker للـ PWA"""
-    try:
-        with open("service-worker.js", "r", encoding="utf-8") as f:
-            sw_content = f.read()
-        return Response(content=sw_content, media_type="application/javascript")
-    except FileNotFoundError:
-        return Response(content="console.log('Service Worker not found');", media_type="application/javascript")
+    """خدمة ملف service worker للـ PWA - معطل مؤقتاً"""
+    # تعطيل Service Worker لحل مشكلة التعليق
+    content = """
+console.log('Service Worker disabled temporarily');
+// إلغاء تثبيت Service Worker إذا كان مثبت
+self.addEventListener('install', () => {
+    console.log('SW: Uninstalling...');
+    self.skipWaiting();
+});
+self.addEventListener('activate', (event) => {
+    console.log('SW: Cleaning up...');
+    event.waitUntil(
+        caches.keys().then((cacheNames) => {
+            return Promise.all(
+                cacheNames.map(cacheName => caches.delete(cacheName))
+            );
+        }).then(() => {
+            return self.clients.claim();
+        })
+    );
+});
+"""
+    return Response(content=content, media_type="application/javascript")
 
 # -------- وضع: بحث & تلخيص عربي --------
 async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=False):
