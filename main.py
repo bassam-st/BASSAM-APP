@@ -385,7 +385,7 @@ def fetch(url: str, timeout=3):
     r.raise_for_status()
     return r.text
 
-def fetch_and_extract(url: str, timeout=3):
+def fetch_and_extract(url: str, timeout=2):
     try:
         html_text = fetch(url, timeout=timeout)
         if not html_text or len(html_text.strip()) < 100:
@@ -898,49 +898,62 @@ async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=
         return cached, ""
 
     query_ar = q if "بالعربية" in q else (q + " بالعربية")
-    with DDGS() as ddgs:
-        results = list(ddgs.text(query_ar, region="xa-ar", safesearch="Strict", max_results=25)) or []
-    if not results:
+    
+    # Reduce search results to speed up response
+    try:
         with DDGS() as ddgs:
-            results = list(ddgs.text(query_ar, region="sa-ar", safesearch="Strict", max_results=25)) or []
-    if not results:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(q, region="xa-ar", safesearch="Strict", max_results=25)) or []
+            results = list(ddgs.text(query_ar, region="xa-ar", safesearch="Strict", max_results=10)) or []
+        if not results:
+            with DDGS() as ddgs:
+                results = list(ddgs.text(q, region="xa-ar", safesearch="Strict", max_results=10)) or []
+    except Exception:
+        results = []
 
     source_cards, combined_chunks = [], []
+    successful_sources = 0
+    
     for r in sorted(results, key=lambda it: priority_key(it, "summary")):
+        if successful_sources >= 3:  # Limit to 3 sources for faster response
+            break
+            
         href = r.get("href") or r.get("link") or r.get("url")
         title = r.get("title") or ""
+        snippet = r.get("body", "")[:200]  # Use snippet from search results
+        
         if not href:
             continue
         d = domain_of(href)
 
+        # Try cache first
         ckey = "url:" + href
         val = cache.get(ckey)
-        if val is None:
-            txt, raw = fetch_and_extract(href)
-            if txt and len(txt) > 200:
-                cache.set(ckey, (txt, raw), expire=60*60*24)
-            val = (txt, raw)
+        page_text = ""
         
-        # Safe unpacking of cache value
-        if isinstance(val, (tuple, list)) and len(val) >= 2:
-            page_text, raw_html = val[0], val[1]
-        else:
-            page_text, raw_html = "", ""
-
-        # Ensure page_text is a string before processing
-        if not page_text or not isinstance(page_text, str) or not is_arabic(page_text):
-            continue
-
-        summ = summarize_from_text(page_text, q, max_sentences=3)
-        if not summ:
-            continue
-
-        combined_chunks.append(summ)
-        source_cards.append(make_summary_card(title, href, summ, d))
-        if len(source_cards) >= 4:
-            break
+        if val and isinstance(val, (tuple, list)) and len(val) >= 2:
+            page_text = val[0] if isinstance(val[0], str) else ""
+        
+        # If no cached content and not a problematic domain, try to fetch
+        if not page_text and not any(domain in href for domain in ["16personalities", "reverso", "britannica"]):
+            try:
+                txt, raw = fetch_and_extract(href, timeout=2)  # Reduced timeout
+                if txt and len(txt) > 100:
+                    cache.set(ckey, (txt, raw), expire=60*60*24)
+                    page_text = txt
+            except Exception:
+                pass  # Skip this source if fetch fails
+        
+        # If we have content, process it
+        if page_text and isinstance(page_text, str) and len(page_text) > 50:
+            if is_arabic(page_text, min_ar_chars=10):  # Reduced Arabic requirement
+                summ = summarize_from_text(page_text, q, max_sentences=2)
+                if summ:
+                    combined_chunks.append(summ)
+                    source_cards.append(make_summary_card(title, href, summ, d))
+                    successful_sources += 1
+        elif snippet:  # Use search snippet as fallback
+            combined_chunks.append(snippet)
+            source_cards.append(make_summary_card(title, href, snippet, d))
+            successful_sources += 1
 
     if not combined_chunks:
         panel = '<div class="card" style="margin-top:12px;">لم أعثر على محتوى عربي كافٍ. غيّر صياغة السؤال أو أضف كلمة "بالعربية".</div>'
