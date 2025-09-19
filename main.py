@@ -1,4 +1,4 @@
-# main.py — بحث عربي مجاني + تلخيص ذكي + أسعار المتاجر + صور + تقييم + PDF + نسخ + وضع ليلي
+# main.py — بحث عربي مجاني + تلخيص ذكي + أسعار المتاجر + صور + تقييم + PDF + نسخ + وضع ليلي + حاسبة العمر والعمليات الحسابية
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from ddgs import DDGS
@@ -6,8 +6,19 @@ from readability import Document
 from bs4 import BeautifulSoup
 from diskcache import Cache
 from urllib.parse import urlparse, urlencode
-from fpdf import FPDF
-import requests, re, html, time
+# PDF functionality - optional
+try:
+    from fpdf2 import FPDF
+    PDF_AVAILABLE = True
+except ImportError:
+    try:
+        from fpdf import FPDF
+        PDF_AVAILABLE = True
+    except ImportError:
+        PDF_AVAILABLE = False
+        print("تحذير: مكتبة PDF غير متوفرة - سيتم تعطيل ميزة تصدير PDF")
+import requests, re, html, time, ast, operator, datetime
+from typing import Dict, Any, Optional, Union
 
 app = FastAPI()
 cache = Cache(".cache")
@@ -113,12 +124,447 @@ def get_reminder_message() -> str:
     </div>
     '''
 
+# -------- أدوات ذكية: حاسبة العمر والعمليات الحسابية --------
+
+def normalize_arabic_digits(text: str) -> str:
+    """تحويل الأرقام العربية إلى إنجليزية"""
+    arabic_to_english = {
+        '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+        '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
+    }
+    for ar, en in arabic_to_english.items():
+        text = text.replace(ar, en)
+    return text
+
+def parse_date(date_str: str) -> Optional[datetime.date]:
+    """تحليل التاريخ من النص العربي والإنجليزي"""
+    date_str = normalize_arabic_digits(date_str.strip())
+    
+    # أنماط التاريخ المدعومة
+    patterns = [
+        (r'(\d{1,2})[/-](\d{1,2})[/-](\d{4})', 'dmy'),    # dd/mm/yyyy or dd-mm-yyyy
+        (r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', 'ymd'),    # yyyy/mm/dd or yyyy-mm-dd
+        (r'(\d{1,2})\s+(\d{1,2})\s+(\d{4})', 'dmy'),      # dd mm yyyy
+        (r'(\d{4})\s+(\d{1,2})\s+(\d{1,2})', 'ymd'),      # yyyy mm dd
+    ]
+    
+    for pattern, format_type in patterns:
+        match = re.search(pattern, date_str)
+        if match:
+            try:
+                nums = [int(x) for x in match.groups()]
+                
+                # تحديد Year, Month, Day حسب النمط
+                if format_type == 'dmy':  # Day Month Year
+                    day, month, year = nums[0], nums[1], nums[2]
+                elif format_type == 'ymd':  # Year Month Day  
+                    year, month, day = nums[0], nums[1], nums[2]
+                
+                # التحقق من صحة التاريخ
+                if year > 1900 and year <= datetime.date.today().year + 1:
+                    if 1 <= month <= 12 and 1 <= day <= 31:
+                        return datetime.date(year, month, day)
+                        
+            except ValueError:
+                continue
+    
+    return None
+
+def calculate_age(birth_date: datetime.date) -> Dict[str, int]:
+    """حساب العمر بالسنوات والأشهر والأيام"""
+    today = datetime.date.today()
+    
+    years = today.year - birth_date.year
+    months = today.month - birth_date.month
+    days = today.day - birth_date.day
+    
+    if days < 0:
+        months -= 1
+        # Get last day of previous month
+        if today.month == 1:
+            last_month = datetime.date(today.year - 1, 12, 31)
+        else:
+            try:
+                last_month = datetime.date(today.year, today.month - 1, birth_date.day)
+            except ValueError:
+                last_month = datetime.date(today.year, today.month, 1) - datetime.timedelta(days=1)
+        days = (today - last_month).days
+    
+    if months < 0:
+        years -= 1
+        months += 12
+    
+    total_days = (today - birth_date).days
+    total_weeks = total_days // 7
+    
+    return {
+        'years': years,
+        'months': months, 
+        'days': days,
+        'total_days': total_days,
+        'total_weeks': total_weeks
+    }
+
+def handle_age_calculation(question: str) -> str:
+    """معالج حساب العمر"""
+    # البحث عن التاريخ في السؤال
+    date_match = re.search(r'(\d{1,2}[/-]\d{1,2}[/-]\d{4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}|[٠-٩\d]{1,2}[/-][٠-٩\d]{1,2}[/-][٠-٩\d]{4})', question)
+    
+    if not date_match:
+        return """
+        <div style="background: linear-gradient(135deg, #ff6b6b, #ffa500); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+            <h3>🎂 حاسبة العمر</h3>
+            <p>لحساب عمرك، اكتب تاريخ ميلادك بإحدى هذه الصيغ:</p>
+            <ul style="text-align: right; margin: 15px 0;">
+                <li><strong>15/6/1990</strong> أو <strong>15-6-1990</strong></li>
+                <li><strong>1990/6/15</strong> أو <strong>1990-6-15</strong></li>
+                <li><strong>١٥/٦/١٩٩٠</strong> (بالأرقام العربية)</li>
+            </ul>
+            <p>مثال: احسب عمري 15/6/1990</p>
+        </div>
+        """
+    
+    birth_date = parse_date(date_match.group(1))
+    if not birth_date:
+        return """
+        <div style="background: #ff4757; color: white; padding: 15px; border-radius: 10px; text-align: center;">
+            <h3>❌ تاريخ غير صحيح</h3>
+            <p>تأكد من كتابة التاريخ بصيغة صحيحة مثل: 15/6/1990</p>
+        </div>
+        """
+    
+    if birth_date > datetime.date.today():
+        return """
+        <div style="background: #ff4757; color: white; padding: 15px; border-radius: 10px; text-align: center;">
+            <h3>⚠️ تاريخ مستقبلي</h3>
+            <p>تاريخ الميلاد لا يمكن أن يكون في المستقبل!</p>
+        </div>
+        """
+    
+    age_info = calculate_age(birth_date)
+    
+    return f"""
+    <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 25px; border-radius: 15px; text-align: center;">
+        <h2>🎂 عمرك المحسوب</h2>
+        
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; margin: 20px 0;">
+            <div style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px;">
+                <h3 style="margin: 0; font-size: 2em; color: #ffd700;">{age_info['years']}</h3>
+                <p style="margin: 5px 0;">سنة</p>
+            </div>
+            <div style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px;">
+                <h3 style="margin: 0; font-size: 2em; color: #ffd700;">{age_info['months']}</h3>
+                <p style="margin: 5px 0;">شهر</p>
+            </div>
+            <div style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px;">
+                <h3 style="margin: 0; font-size: 2em; color: #ffd700;">{age_info['days']}</h3>
+                <p style="margin: 5px 0;">يوم</p>
+            </div>
+        </div>
+        
+        <div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; margin-top: 15px;">
+            <h4>📊 إحصائيات إضافية:</h4>
+            <p><strong>{age_info['total_days']:,}</strong> يوماً منذ ولادتك</p>
+            <p><strong>{age_info['total_weeks']:,}</strong> أسبوعاً في حياتك</p>
+            <p><strong>تاريخ الميلاد:</strong> {birth_date.strftime('%d/%m/%Y')}</p>
+        </div>
+        
+        <div style="margin-top: 15px; font-size: 14px; opacity: 0.9;">
+            تم حساب العمر اعتماداً على التاريخ الحالي: {datetime.date.today().strftime('%d/%m/%Y')}
+        </div>
+    </div>
+    """
+
+# آلة حاسبة آمنة للعمليات الرياضية
+class SafeCalculator:
+    def __init__(self):
+        # العمليات المسموحة
+        self.operators = {
+            ast.Add: operator.add,
+            ast.Sub: operator.sub,
+            ast.Mult: operator.mul,
+            ast.Div: operator.truediv,
+            ast.FloorDiv: operator.floordiv,
+            ast.Mod: operator.mod,
+            ast.Pow: operator.pow,
+            ast.USub: operator.neg,
+            ast.UAdd: operator.pos,
+        }
+    
+    def safe_eval(self, expression: str) -> Union[float, str]:
+        """تقييم آمن للتعبيرات الرياضية مع حماية من DoS"""
+        try:
+            expression = normalize_arabic_digits(expression)
+            # إزالة المسافات والرموز غير الضرورية
+            expression = re.sub(r'[^\d+\-*/().%\s]', '', expression)
+            
+            if not expression.strip():
+                return "تعبير فارغ"
+            
+            # فحص الأمان: طول التعبير والأرقام الكبيرة
+            if len(expression) > 100:
+                return "التعبير طويل جداً"
+            
+            # منع الأرقام الكبيرة جداً (أكثر من 15 رقم)
+            large_numbers = re.findall(r'\d{16,}', expression)
+            if large_numbers:
+                return "الأرقام كبيرة جداً للمعالجة"
+                
+            # تحليل التعبير
+            node = ast.parse(expression, mode='eval')
+            result = self._evaluate_node(node.body)
+            
+            # فحص النتيجة من الكبر المفرط
+            if isinstance(result, (int, float)) and abs(result) > 1e15:
+                return "النتيجة كبيرة جداً للعرض"
+            
+            # تنسيق النتيجة
+            if isinstance(result, float):
+                if result.is_integer():
+                    return int(result)
+                else:
+                    return round(result, 8)
+            return result
+            
+        except Exception as e:
+            return f"خطأ في العملية الحسابية: {str(e)}"
+    
+    def _evaluate_node(self, node):
+        """تقييم عقد AST بشكل آمن مع حماية من DoS"""
+        if isinstance(node, ast.Constant):
+            return node.value
+        elif isinstance(node, ast.Num):  # للتوافق مع إصدارات Python الأقدم
+            return node.n
+        elif isinstance(node, ast.BinOp):
+            left = self._evaluate_node(node.left)
+            right = self._evaluate_node(node.right)
+            op = self.operators.get(type(node.op))
+            if op:
+                if isinstance(node.op, ast.Div) and right == 0:
+                    raise ValueError("لا يمكن القسمة على صفر")
+                # حماية من الأس الكبير الذي يسبب DoS
+                if isinstance(node.op, ast.Pow):
+                    if abs(right) > 100:
+                        raise ValueError("الأس كبير جداً للمعالجة")
+                    if abs(left) > 1000:
+                        raise ValueError("الأساس كبير جداً للمعالجة")
+                return op(left, right)
+        elif isinstance(node, ast.UnaryOp):
+            operand = self._evaluate_node(node.operand)
+            op = self.operators.get(type(node.op))
+            if op:
+                return op(operand)
+        
+        raise ValueError(f"عملية غير مسموحة: {type(node)}")
+
+# تم نقل WEIGHT_CONVERSIONS إلى WEIGHT_UNIT_MAPPING أدناه
+
+# تحويل الأوزان والقياسات - قاموس محسن للتطابق التام
+WEIGHT_UNIT_MAPPING = {
+    # الوحدات المترية
+    'مليغرام': 0.001, 'ملغرام': 0.001, 'ملغ': 0.001, 'mg': 0.001, 'milligram': 0.001,
+    'غرام': 1, 'جرام': 1, 'غم': 1, 'جم': 1, 'g': 1, 'gr': 1, 'gram': 1,
+    'كيلوغرام': 1000, 'كيلوجرام': 1000, 'كيلو': 1000, 'كغم': 1000, 'كجم': 1000, 'kg': 1000, 'kilogram': 1000,
+    'طن': 1000000, 'ton': 1000000, 'tonne': 1000000, 'metric_ton': 1000000,
+    
+    # الوحدات الإمبراطورية
+    'أوقية': 28.3495, 'اونصة': 28.3495, 'أونصة': 28.3495, 'oz': 28.3495, 'ounce': 28.3495,
+    'رطل': 453.592, 'باوند': 453.592, 'lb': 453.592, 'lbs': 453.592, 'pound': 453.592, 'pounds': 453.592,
+}
+
+def convert_weight(value: float, from_unit: str, to_unit: str) -> Optional[float]:
+    """تحويل الأوزان بين الوحدات المختلفة - تحسن للتطابق التام"""
+    from_unit = from_unit.lower().strip()
+    to_unit = to_unit.lower().strip()
+    
+    # البحث عن العوامل بالتطابق التام
+    from_factor = WEIGHT_UNIT_MAPPING.get(from_unit)
+    to_factor = WEIGHT_UNIT_MAPPING.get(to_unit)
+    
+    if from_factor is None or to_factor is None:
+        return None
+    
+    # تحويل إلى الغرام ثم إلى الوحدة المطلوبة
+    grams = value * from_factor
+    result = grams / to_factor
+    
+    return round(result, 6)
+
+def handle_math_calculation(question: str) -> str:
+    """معالج العمليات الحسابية"""
+    calculator = SafeCalculator()
+    
+    # البحث عن تعبير رياضي
+    math_pattern = r'احسب\s+(.+?)(?:\s|$)|حساب\s+(.+?)(?:\s|$)|(.+?)\s*=\s*\?|(.+?)\s*كم'
+    match = re.search(math_pattern, question)
+    
+    if match:
+        expression = None
+        for group in match.groups():
+            if group:
+                expression = group.strip()
+                break
+        
+        if expression:
+            # التعامل مع النسب المئوية أولاً (قبل تنظيف التعبير)
+            original_expression = expression  # حفظ النسخة الأصلية
+            percent_match = re.search(r'(\d+(?:\.\d+)?)\s*%\s*من\s*(\d+(?:\.\d+)?)', original_expression)
+            if percent_match:
+                percentage = float(percent_match.group(1))
+                value = float(percent_match.group(2))
+                result = (percentage / 100) * value
+                
+                return f"""
+                <div style="background: linear-gradient(135deg, #11998e, #38ef7d); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+                    <h3>🔢 حاسبة النسب المئوية</h3>
+                    <div style="font-size: 1.2em; margin: 15px 0;">
+                        <strong>{percentage}% من {value} = {result}</strong>
+                    </div>
+                    <div style="background: rgba(255,255,255,0.2); padding: 10px; border-radius: 5px; margin-top: 10px;">
+                        العملية: ({percentage} ÷ 100) × {value} = {result}
+                    </div>
+                </div>
+                """
+            
+            # تنظيف التعبير (بعد التأكد من عدم وجود نسب مئوية)
+            expression = re.sub(r'(من|في|على|ضرب|زائد|ناقص|مقسوم)', lambda m: {
+                'من': '-', 'زائد': '+', 'ناقص': '-', 'ضرب': '*', 
+                'في': '*', 'على': '/', 'مقسوم': '/'
+            }.get(m.group(), m.group()), expression)
+            
+            result = calculator.safe_eval(expression)
+            
+            return f"""
+            <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+                <h3>🧮 نتيجة العملية الحسابية</h3>
+                <div style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 15px 0;">
+                    <div style="font-size: 1.1em; margin-bottom: 10px;">العملية: <strong>{expression}</strong></div>
+                    <div style="font-size: 1.5em; color: #ffd700;"><strong>النتيجة: {result}</strong></div>
+                </div>
+            </div>
+            """
+    
+    return """
+    <div style="background: linear-gradient(135deg, #ff6b6b, #ffa500); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+        <h3>🧮 آلة حاسبة ذكية</h3>
+        <p>اكتب عملية حسابية مثل:</p>
+        <ul style="text-align: right; margin: 15px 0;">
+            <li><strong>احسب 125 + 75</strong></li>
+            <li><strong>حساب 12.5% من 240</strong></li>
+            <li><strong>50 * 3 - 20</strong></li>
+            <li><strong>100 / 4</strong></li>
+        </ul>
+    </div>
+    """
+
+def handle_weight_conversion(question: str) -> str:
+    """معالج تحويل الأوزان"""
+    # أنماط تحويل الوزن
+    patterns = [
+        r'حول\s+([٠-٩\d.]+)\s*(\w+)\s+(?:إلى|الى|ل)\s*(\w+)',
+        r'تحويل\s+([٠-٩\d.]+)\s*(\w+)\s+(?:إلى|الى|ل)\s*(\w+)',
+        r'([٠-٩\d.]+)\s*(\w+)\s+(?:كم|يساوي|=)\s*(\w+)',
+        r'([٠-٩\d.]+)\s*(\w+)\s+to\s+(\w+)',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, question, re.IGNORECASE)
+        if match:
+            value_str = normalize_arabic_digits(match.group(1))
+            from_unit = match.group(2).lower()
+            to_unit = match.group(3).lower()
+            
+            try:
+                value = float(value_str)
+                result = convert_weight(value, from_unit, to_unit)
+                
+                if result is not None:
+                    # تنسيق النتيجة
+                    if result.is_integer():
+                        result_str = str(int(result))
+                    else:
+                        result_str = f"{result:.4f}".rstrip('0').rstrip('.')
+                    
+                    return f"""
+                    <div style="background: linear-gradient(135deg, #e056fd, #f093fb); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+                        <h3>⚖️ تحويل الأوزان</h3>
+                        <div style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 15px 0;">
+                            <div style="font-size: 1.5em; color: #ffd700;">
+                                <strong>{value} {from_unit} = {result_str} {to_unit}</strong>
+                            </div>
+                        </div>
+                        <div style="font-size: 0.9em; opacity: 0.8;">
+                            تحويل دقيق للأوزان والقياسات
+                        </div>
+                    </div>
+                    """
+                
+            except ValueError:
+                pass
+    
+    return """
+    <div style="background: linear-gradient(135deg, #ff6b6b, #ffa500); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+        <h3>⚖️ تحويل الأوزان والقياسات</h3>
+        <p>اكتب طلب التحويل مثل:</p>
+        <ul style="text-align: right; margin: 15px 0;">
+            <li><strong>حول 70 كيلو إلى رطل</strong></li>
+            <li><strong>تحويل 2 رطل إلى غرام</strong></li>
+            <li><strong>500 غرام كم أوقية</strong></li>
+            <li><strong>1 طن يساوي كم كيلو</strong></li>
+        </ul>
+        <p style="font-size: 0.9em; margin-top: 15px;">
+            الوحدات المدعومة: كيلو، غرام، رطل، أوقية، طن، ملغرام
+        </p>
+    </div>
+    """
+
+# نظام كشف النية المحسن
+class IntentDetector:
+    def __init__(self):
+        self.intents = {
+            'age_calculation': [
+                r'احسب\s+عمر', r'حساب\s+العمر', r'كم\s+عمر', r'عمري',
+                r'calculate.*age', r'age.*calculat', r'how.*old'
+            ],
+            'math_calculation': [
+                r'احسب\s*[+\-*/\d]', r'حساب\s*[+\-*/\d]', r'[+\-*/]\s*كم',
+                r'\d+\s*[+\-*/]\s*\d+', r'\d+\s*%.*من', r'نسبة.*مئوية',
+                r'calculate', r'compute', r'math'
+            ],
+            'weight_conversion': [
+                r'حول.*(?:كيلو|غرام|رطل|أوقية|طن)', r'تحويل.*(?:كيلو|غرام|رطل|أوقية|طن)',
+                r'(?:كيلو|غرام|رطل|أوقية|طن).*(?:إلى|الى|يساوي|كم)',
+                r'convert.*(?:kg|gram|pound|ounce|ton)', r'(?:kg|g|lb|oz|ton).*to.*(?:kg|g|lb|oz|ton)'
+            ],
+            'programming': [
+                r'(?:بايثون|python|javascript|js|html|css|php|java|c\+\+|c#)',
+                r'(?:برمجة|كود|تطوير|algorithm|function|class|variable)',
+                r'(?:framework|library|api|database|sql)', r'(?:react|vue|angular|django|flask)'
+            ],
+            'networking': [
+                r'(?:شبكة|network|internet|tcp|ip|http|https|dns|router)',
+                r'(?:wifi|lan|wan|vpn|firewall|protocol|port)',
+                r'(?:server|client|bandwidth|latency)', r'(?:cisco|juniper|mikrotik)'
+            ]
+        }
+    
+    def detect_intent(self, question: str) -> str:
+        """كشف نية المستخدم من السؤال"""
+        question_lower = question.lower()
+        
+        for intent, patterns in self.intents.items():
+            for pattern in patterns:
+                if re.search(pattern, question_lower):
+                    return intent
+        
+        return 'general'
+
 # -------- أدوات اللغة والملخص --------
 AR_RE = re.compile(r"[اأإآء-ي]")
 def is_arabic(text: str, min_ar_chars: int = 30) -> bool:
     return len(AR_RE.findall(text or "")) >= min_ar_chars
 
-# -------- النظام الذكي للإجابة على الأسئلة --------
+# -------- النظام الذكي للإجابة على الأسئلة مع ChatGPT Style --------
 class SmartAnswerEngine:
     def __init__(self):
         self.question_types = {
@@ -131,6 +577,23 @@ class SmartAnswerEngine:
             'من': 'who',
             'كم': 'quantity',
             'هل': 'yes_no'
+        }
+        
+        # Domain scores for programming and networking (ChatGPT-style enhancement)
+        self.domain_scores = {
+            # Programming domains
+            'stackoverflow.com': 10, 'docs.python.org': 10, 'developer.mozilla.org': 10,
+            'github.com': 9, 'w3schools.com': 8, 'geeksforgeeks.org': 8,
+            'reactjs.org': 9, 'vuejs.org': 9, 'angular.io': 9, 'djangoproject.com': 9,
+            'flask.palletsprojects.com': 9, 'nodejs.org': 9,
+            
+            # Networking domains 
+            'cisco.com': 10, 'ietf.org': 10, 'rfc-editor.org': 10, 
+            'juniper.net': 9, 'microsoft.com': 8, 'cloudflare.com': 8,
+            'networkworld.com': 7, 'networkcomputing.com': 7,
+            
+            # Arabic technical domains
+            'ar.wikipedia.org': 8, 'mawdoo3.com': 7, 'almrsal.com': 7
         }
         
     def analyze_question(self, question: str):
@@ -167,10 +630,14 @@ class SmartAnswerEngine:
         keywords = [word.strip('؟،.!') for word in words if word not in stop_words and len(word) > 2]
         return keywords[:5]  # أهم 5 كلمات
         
-    def generate_smart_answer(self, question_analysis, search_results, detailed=False):
-        """توليد إجابة ذكية مختصرة من نتائج البحث"""
+    def generate_smart_answer(self, question_analysis, search_results, detailed=False, intent='general'):
+        """توليد إجابة ذكية مختصرة من نتائج البحث - ChatGPT Style"""
         if not search_results:
             return "لم أتمكن من العثور على إجابة مناسبة لسؤالك. حاول إعادة صياغة السؤال."
+            
+        # ترتيب النتائج حسب Domain Scores للبرمجة والشبكات
+        if intent in ['programming', 'networking']:
+            search_results = self.rank_results_by_domain(search_results)
             
         # جمع المعلومات من جميع المصادر
         all_content = []
@@ -185,21 +652,42 @@ class SmartAnswerEngine:
             return "لم أجد معلومات كافية للإجابة على سؤالك."
         
         # تحليل نوع السؤال وتوليد إجابة مناسبة
-        answer = self.create_targeted_answer(question_analysis, all_content, detailed)
+        answer = self.create_targeted_answer(question_analysis, all_content, detailed, intent)
         
-        # إضافة مصادر الإجابة
+        # إضافة مصادر الإجابة بتنسيق ChatGPT
         if len(sources) > 0:
             source_list = ", ".join(sources[:3])  # أول 3 مصادر
-            answer += f"\n\nالمصادر: {source_list}"
+            answer += f"\n\n**المصادر:** {source_list}"
             
         return answer
     
-    def create_targeted_answer(self, analysis, content_list, detailed):
-        """إنشاء إجابة مستهدفة حسب نوع السؤال"""
+    def rank_results_by_domain(self, search_results):
+        """ترتيب النتائج حسب جودة المصدر للمجالات التقنية"""
+        def get_domain_score(url):
+            if not url:
+                return 0
+            for domain, score in self.domain_scores.items():
+                if domain in url:
+                    return score
+            return 1
+        
+        # ترتيب النتائج حسب النقاط
+        ranked_results = sorted(search_results, 
+                               key=lambda r: get_domain_score(r.get('href', '')), 
+                               reverse=True)
+        return ranked_results
+    
+    def create_targeted_answer(self, analysis, content_list, detailed, intent='general'):
+        """إنشاء إجابة مستهدفة حسب نوع السؤال والنية - ChatGPT Style"""
         combined_content = " ".join(content_list)
         question_type = analysis['type']
         
-        if question_type == 'definition':
+        # إعطاء أولوية للنية المكتشفة
+        if intent == 'programming':
+            return self.answer_programming(combined_content, detailed)
+        elif intent == 'networking':
+            return self.answer_networking(combined_content, detailed)
+        elif question_type == 'definition':
             return self.answer_definition(combined_content, detailed)
         elif question_type == 'how_to':
             return self.answer_how_to(combined_content, detailed)
@@ -215,57 +703,157 @@ class SmartAnswerEngine:
             return self.answer_general(combined_content, detailed)
     
     def answer_definition(self, content, detailed):
-        """إجابة أسئلة التعريف (ما هو/ما هي)"""
+        """إجابة أسئلة التعريف (ما هو/ما هي) - ChatGPT Style"""
         sentences = self.split_into_sentences(content)
         
-        # البحث عن جمل التعريف
+        # البحث عن جمل التعريف المحسنة
         definition_sentences = []
         for sentence in sentences:
-            if any(word in sentence for word in ['هو', 'هي', 'يعرف', 'يُعرّف', 'مصطلح', 'مفهوم']):
+            if any(word in sentence for word in ['هو', 'هي', 'يعرف', 'يُعرّف', 'مصطلح', 'مفهوم', 'يُقصد', 'عبارة عن']):
                 definition_sentences.append(sentence)
         
         if not definition_sentences:
-            definition_sentences = sentences[:2]  # أول جملتين
+            definition_sentences = sentences[:2]
         
         if detailed:
-            return " ".join(definition_sentences[:4])  # 4 جمل للتفصيل
+            # ChatGPT-style detailed response with structure
+            main_def = definition_sentences[0] if definition_sentences else sentences[0]
+            additional_info = definition_sentences[1:3] if len(definition_sentences) > 1 else sentences[1:3]
+            
+            response = f"**التعريف:** {main_def}\n\n"
+            if additional_info:
+                response += "**تفاصيل إضافية:**\n"
+                for i, info in enumerate(additional_info, 1):
+                    response += f"• {info}\n"
+            return response
         else:
+            # Concise ChatGPT-style response
             return definition_sentences[0] if definition_sentences else sentences[0]
     
     def answer_how_to(self, content, detailed):
-        """إجابة أسئلة الطريقة (كيف)"""
+        """إجابة أسئلة الطريقة (كيف) - ChatGPT Style"""
         sentences = self.split_into_sentences(content)
         
-        # البحث عن جمل الخطوات والطرق
+        # البحث عن جمل الخطوات والطرق المحسنة
         how_sentences = []
+        step_sentences = []
+        
         for sentence in sentences:
-            if any(word in sentence for word in ['خطوة', 'طريقة', 'كيفية', 'يمكن', 'أولاً', 'ثانياً', 'عبر', 'من خلال']):
+            if any(word in sentence for word in ['خطوة', 'طريقة', 'كيفية', 'يمكن', 'أولاً', 'ثانياً', 'ثالثاً', 'عبر', 'من خلال', 'للقيام', 'لتطبيق']):
                 how_sentences.append(sentence)
+            if any(word in sentence for word in ['١.', '٢.', '٣.', '1.', '2.', '3.', 'الخطوة', 'أولا', 'ثانيا', 'ثالثا']):
+                step_sentences.append(sentence)
         
         if not how_sentences:
             how_sentences = sentences[:3]
         
         if detailed:
-            return " ".join(how_sentences[:5])
+            # ChatGPT-style detailed steps
+            response = "**الطريقة:**\n\n"
+            if step_sentences:
+                for i, step in enumerate(step_sentences[:5], 1):
+                    response += f"{i}. {step}\n"
+            else:
+                for i, sentence in enumerate(how_sentences[:4], 1):
+                    response += f"• {sentence}\n"
+            return response
         else:
-            return " ".join(how_sentences[:2])
+            # Concise response with bullet points
+            if len(how_sentences) >= 2:
+                return f"• {how_sentences[0]}\n• {how_sentences[1]}"
+            else:
+                return how_sentences[0] if how_sentences else sentences[0]
     
     def answer_why(self, content, detailed):
-        """إجابة أسئلة السبب (لماذا)"""
+        """إجابة أسئلة السبب (لماذا) - ChatGPT Style"""
         sentences = self.split_into_sentences(content)
         
         why_sentences = []
         for sentence in sentences:
-            if any(word in sentence for word in ['سبب', 'لأن', 'نتيجة', 'بسبب', 'يؤدي', 'يسبب', 'السبب']):
+            if any(word in sentence for word in ['سبب', 'لأن', 'نتيجة', 'بسبب', 'يؤدي', 'يسبب', 'السبب', 'يعود', 'نظراً', 'بسبب', 'العامل']):
                 why_sentences.append(sentence)
         
         if not why_sentences:
             why_sentences = sentences[:2]
         
         if detailed:
-            return " ".join(why_sentences[:4])
+            # ChatGPT-style detailed reasons
+            response = "**الأسباب:**\n\n"
+            for i, reason in enumerate(why_sentences[:4], 1):
+                response += f"• {reason}\n"
+            return response
         else:
-            return why_sentences[0] if why_sentences else sentences[0]
+            # Concise reason
+            main_reason = why_sentences[0] if why_sentences else sentences[0]
+            return f"**السبب:** {main_reason}"
+    
+    def answer_programming(self, content, detailed):
+        """إجابة أسئلة البرمجة - ChatGPT Style"""
+        sentences = self.split_into_sentences(content)
+        
+        # البحث عن كود أو أمثلة
+        code_sentences = []
+        explanation_sentences = []
+        
+        for sentence in sentences:
+            if any(word in sentence for word in ['function', 'class', 'def ', 'var ', 'const ', '{', '}', '()', 'import', 'from']):
+                code_sentences.append(sentence)
+            elif any(word in sentence for word in ['مثال', 'كود', 'برمجة', 'تطبيق', 'استخدام', 'طريقة']):
+                explanation_sentences.append(sentence)
+            else:
+                explanation_sentences.append(sentence)
+        
+        if detailed:
+            response = "**الإجابة:**\n\n"
+            # Add main explanation
+            main_explanation = explanation_sentences[:2] if explanation_sentences else sentences[:2]
+            for exp in main_explanation:
+                response += f"• {exp}\n"
+            
+            # Add code example if available
+            if code_sentences:
+                response += "\n**مثال عملي:**\n"
+                for code in code_sentences[:2]:
+                    response += f"```\n{code}\n```\n"
+            
+            return response
+        else:
+            # Concise programming answer
+            main_answer = explanation_sentences[0] if explanation_sentences else sentences[0]
+            return f"**التفسير:** {main_answer}"
+    
+    def answer_networking(self, content, detailed):
+        """إجابة أسئلة الشبكات - ChatGPT Style"""
+        sentences = self.split_into_sentences(content)
+        
+        # البحث عن معلومات تقنية
+        technical_sentences = []
+        concept_sentences = []
+        
+        for sentence in sentences:
+            if any(word in sentence for word in ['TCP', 'UDP', 'IP', 'HTTP', 'DNS', 'router', 'switch', 'protocol', 'port']):
+                technical_sentences.append(sentence)
+            else:
+                concept_sentences.append(sentence)
+        
+        if detailed:
+            response = "**الشرح التقني:**\n\n"
+            # Add conceptual explanation
+            main_concepts = concept_sentences[:2] if concept_sentences else sentences[:2]
+            for i, concept in enumerate(main_concepts, 1):
+                response += f"{i}. {concept}\n"
+            
+            # Add technical details
+            if technical_sentences:
+                response += "\n**التفاصيل التقنية:**\n"
+                for tech in technical_sentences[:2]:
+                    response += f"• {tech}\n"
+            
+            return response
+        else:
+            # Concise networking answer
+            main_answer = concept_sentences[0] if concept_sentences else sentences[0]
+            return f"**الشرح:** {main_answer}"
     
     def answer_when(self, content, detailed):
         """إجابة أسئلة الوقت (متى)"""
@@ -851,14 +1439,36 @@ async def form_post(question: str = Form(...), mode: str = Form("summary"), deta
         reminder_panel = get_reminder_message()
         return HTML_TEMPLATE.format(result_panel=reminder_panel)
 
+    # ✨ كشف النية للوظائف الجديدة
+    intent_detector = IntentDetector()
+    detected_intent = intent_detector.detect_intent(q)
+    
+    # معالجة الوظائف الجديدة قبل المعالجات الأخرى
+    if detected_intent == 'age_calculation':
+        panel = handle_age_calculation(q)
+        answer_text = "تم حساب العمر بنجاح"
+        tools = make_toolbar_copy_pdf(q, mode, answer_text)
+        return HTML_TEMPLATE.format(result_panel=tools + panel)
+    elif detected_intent == 'math_calculation':
+        panel = handle_math_calculation(q)
+        answer_text = "تم إجراء العملية الحسابية بنجاح"
+        tools = make_toolbar_copy_pdf(q, mode, answer_text)
+        return HTML_TEMPLATE.format(result_panel=tools + panel)
+    elif detected_intent == 'weight_conversion':
+        panel = handle_weight_conversion(q)
+        answer_text = "تم تحويل الوزن بنجاح"
+        tools = make_toolbar_copy_pdf(q, mode, answer_text)
+        return HTML_TEMPLATE.format(result_panel=tools + panel)
+
+    # المعالجات العادية
     if mode == "prices":
         panel, answer_text = await handle_prices(q, return_plain=True)
     elif mode == "images":
         panel, answer_text = await handle_images(q)
     elif mode == "smart":
-        panel, answer_text = await handle_summary(q, return_plain=True, smart_mode=True, detailed=detailed)
+        panel, answer_text = await handle_summary(q, return_plain=True, smart_mode=True, detailed=detailed, intent=detected_intent)
     else:
-        panel, answer_text = await handle_summary(q, return_plain=True, smart_mode=False, detailed=detailed)
+        panel, answer_text = await handle_summary(q, return_plain=True, smart_mode=False, detailed=detailed, intent=detected_intent)
 
     # شريط أدوات نسخ + PDF
     tools = make_toolbar_copy_pdf(q, mode, answer_text or "")
@@ -907,7 +1517,7 @@ self.addEventListener('activate', (event) => {
     return Response(content=content, media_type="application/javascript")
 
 # -------- وضع: بحث & تلخيص عربي --------
-async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=False):
+async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=False, intent='general'):
     cache_key = "sum:" + q
     cached = cache.get(cache_key)
     if cached and not return_plain:
@@ -992,7 +1602,8 @@ async def handle_summary(q: str, return_plain=False, smart_mode=False, detailed=
         smart_answer = smart_engine.generate_smart_answer(
             question_analysis, 
             search_results, 
-            detailed or question_analysis.get('needs_detail', False)
+            detailed or question_analysis.get('needs_detail', False),
+            intent
         )
         
         # عرض الإجابة الذكية مع أمان كامل
