@@ -18,10 +18,137 @@ except ImportError:
         PDF_AVAILABLE = False
         print("تحذير: مكتبة PDF غير متوفرة - سيتم تعطيل ميزة تصدير PDF")
 import requests, re, html, time, ast, operator, datetime
-from typing import Dict, Any, Optional, Union
+from typing import Dict, Any, Optional, Union, List
+import hashlib
+import psycopg2
+import json
 
 app = FastAPI()
 cache = Cache(".cache")
+
+# -------- نظام الذاكرة الذكية والتعلم --------
+class SmartMemory:
+    def __init__(self):
+        self.db_url = os.environ.get('DATABASE_URL')
+        
+    def get_connection(self):
+        """الحصول على اتصال قاعدة البيانات"""
+        return psycopg2.connect(self.db_url)
+    
+    def hash_question(self, question: str) -> str:
+        """إنشاء هاش فريد للسؤال"""
+        # تطبيع السؤال قبل الهاش
+        normalized = re.sub(r'\s+', ' ', question.lower().strip())
+        return hashlib.md5(normalized.encode('utf-8')).hexdigest()
+    
+    def search_memory(self, question: str) -> Optional[Dict]:
+        """البحث في الذاكرة عن سؤال مشابه"""
+        question_hash = self.hash_question(question)
+        
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    # البحث بالهاش أولاً
+                    cur.execute("""
+                        SELECT question, answer, confidence_score, usage_count
+                        FROM smart_memory 
+                        WHERE question_hash = %s
+                    """, (question_hash,))
+                    
+                    result = cur.fetchone()
+                    if result:
+                        # زيادة عداد الاستخدام
+                        cur.execute("""
+                            UPDATE smart_memory 
+                            SET usage_count = usage_count + 1, last_used = CURRENT_TIMESTAMP
+                            WHERE question_hash = %s
+                        """, (question_hash,))
+                        conn.commit()
+                        
+                        return {
+                            'question': result[0],
+                            'answer': result[1],
+                            'confidence': result[2],
+                            'usage_count': result[3] + 1
+                        }
+                    
+                    # البحث النصي للأسئلة المشابهة
+                    keywords = re.findall(r'\w+', question.lower())
+                    if keywords:
+                        search_pattern = ' & '.join(keywords[:5])  # أول 5 كلمات
+                        cur.execute("""
+                            SELECT question, answer, confidence_score, usage_count,
+                                   ts_rank(to_tsvector('arabic', question), to_tsquery('arabic', %s)) as rank
+                            FROM smart_memory 
+                            WHERE to_tsvector('arabic', question) @@ to_tsquery('arabic', %s)
+                            ORDER BY rank DESC, usage_count DESC
+                            LIMIT 1
+                        """, (search_pattern, search_pattern))
+                        
+                        result = cur.fetchone()
+                        if result and result[4] > 0.1:  # حد أدنى للتشابه
+                            return {
+                                'question': result[0],
+                                'answer': result[1],
+                                'confidence': result[2] * 0.8,  # تقليل الثقة للمطابقة الجزئية
+                                'usage_count': result[3],
+                                'similarity': result[4]
+                            }
+                            
+        except Exception as e:
+            print(f"خطأ في البحث بالذاكرة: {e}")
+        
+        return None
+    
+    def save_to_memory(self, question: str, answer: str, category: str = None, confidence: float = 0.9, source: str = 'auto'):
+        """حفظ سؤال وإجابة في الذاكرة"""
+        question_hash = self.hash_question(question)
+        
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        INSERT INTO smart_memory (question_hash, question, answer, category, confidence_score, source)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (question_hash) 
+                        DO UPDATE SET 
+                            answer = EXCLUDED.answer,
+                            confidence_score = GREATEST(smart_memory.confidence_score, EXCLUDED.confidence_score),
+                            usage_count = smart_memory.usage_count + 1,
+                            last_used = CURRENT_TIMESTAMP
+                    """, (question_hash, question, answer, category, confidence, source))
+                    conn.commit()
+                    return True
+        except Exception as e:
+            print(f"خطأ في الحفظ بالذاكرة: {e}")
+            return False
+    
+    def get_popular_questions(self, limit: int = 10) -> List[Dict]:
+        """الحصول على الأسئلة الأكثر شيوعاً"""
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT question, usage_count, last_used
+                        FROM smart_memory 
+                        ORDER BY usage_count DESC, last_used DESC
+                        LIMIT %s
+                    """, (limit,))
+                    
+                    return [
+                        {
+                            'question': row[0],
+                            'usage_count': row[1],
+                            'last_used': row[2]
+                        }
+                        for row in cur.fetchall()
+                    ]
+        except Exception as e:
+            print(f"خطأ في جلب الأسئلة الشائعة: {e}")
+            return []
+
+# إنشاء مثيل من الذاكرة الذكية
+smart_memory = SmartMemory()
 
 # ---------------- إعدادات ----------------
 PREFERRED_AR_DOMAINS = {
