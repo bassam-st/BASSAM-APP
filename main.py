@@ -1808,6 +1808,73 @@ async def feedback(domain: str = Form(...), delta: int = Form(...)):
     bump_score(domain, int(delta))
     return JSONResponse({"ok": True, "domain": domain, "score": get_scores().get(domain, 0)})
 
+@app.post("/search")
+async def search(request: Request, question: str = Form(...), mode: str = Form("summary")):
+    """API بحث مخصص لتطبيق بسام الذكي"""
+    q = (question or "").strip()
+    if not q:
+        return {"answer": "يرجى إدخال سؤال للبحث", "html": ""}
+
+    # فحص المحتوى غير المناسب
+    if is_inappropriate_content(q):
+        return {"answer": "عذراً، لا يمكنني الإجابة على هذا السؤال", "html": ""}
+
+    # 🧠 البحث في الذاكرة الذكية أولاً
+    memory_result = smart_memory.search_memory(q)
+    if memory_result and memory_result.get('confidence', 0) > 0.7:
+        return {
+            "answer": memory_result['answer'],
+            "html": f"🧠 من ذاكرة بسام: {memory_result['answer']}",
+            "source": "memory",
+            "confidence": memory_result['confidence']
+        }
+
+    # ✨ كشف النية
+    intent_detector = IntentDetector()
+    detected_intent = intent_detector.detect_intent(q)
+    
+    # 1) تحقق من نوع السؤال (تحويل؟)
+    if detected_intent == 'unit_conversion':
+        conv_result = handle_unit_conversion(q)
+        if conv_result:
+            # استخراج النص من HTML
+            answer_text = extract_text_from_html(conv_result)
+            smart_memory.save_to_memory(q, answer_text, 'unit_conversion', 0.9)
+            return {"answer": answer_text, "html": conv_result, "source": "conversion"}
+
+    # 2) تحقق من البحث عن الأسعار
+    if detected_intent == 'price_search' or "سعر" in q or "ثمن" in q or "كام" in q:
+        results_panel, answer_text = await handle_prices(q, return_plain=True)
+        if answer_text:
+            smart_memory.save_to_memory(q, answer_text, 'price_search', 0.8)
+        return {"answer": answer_text or "لم أجد نتائج مناسبة للأسعار", "html": results_panel, "source": "prices"}
+
+    # 3) محاولة الذكاء الاصطناعي للأسئلة البرمجية والشبكات
+    if detected_intent in ['programming', 'networking'] and hybrid_ai and hybrid_ai.is_available():
+        ai_answer = hybrid_ai.answer_question(q)
+        if ai_answer:
+            smart_memory.save_to_memory(q, ai_answer, detected_intent, 0.85, 'gemini_ai')
+            return {"answer": ai_answer, "html": f"🤖 {ai_answer}", "source": "ai"}
+
+    # 4) البحث العام
+    try:
+        results_panel, answer_text = await handle_summary(q, return_plain=True, smart_mode=True, detailed=False, intent=detected_intent)
+        if answer_text:
+            smart_memory.save_to_memory(q, answer_text, 'general_search', 0.7)
+        return {"answer": answer_text or "تم العثور على معلومات", "html": results_panel, "source": "search"}
+    except Exception as e:
+        print(f"خطأ في البحث: {e}")
+        return {"answer": "عذراً، حدث خطأ أثناء البحث", "html": "", "error": str(e)}
+
+# وظيفة مساعدة لاستخراج النص من HTML
+def extract_text_from_html(html_content: str) -> str:
+    """استخراج النص من محتوى HTML"""
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        return soup.get_text(strip=True, separator=' ')
+    except:
+        return html_content
+
 # PWA Routes
 @app.get("/manifest.json")
 async def get_manifest():
