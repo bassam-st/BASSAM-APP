@@ -4,10 +4,3 @@ httpx
 beautifulsoup4
 jinja2
 python-multipart
-psycopg2-binary
-requests
-diskcache
-google-genai
-readability
-duckduckgo-search
-readability-lxml
