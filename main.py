@@ -1,4 +1,5 @@
 # main.py — بحث عربي مجاني + تلخيص ذكي + أسعار المتاجر + صور + تقييم + PDF + نسخ + وضع ليلي + حاسبة العمر والعمليات الحسابية
+import os
 from fastapi import FastAPI, Form, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from ddgs import DDGS
@@ -20,8 +21,21 @@ except ImportError:
 import requests, re, html, time, ast, operator, datetime
 from typing import Dict, Any, Optional, Union, List
 import hashlib
-import psycopg2
 import json
+
+# استيراد psycopg2 بشكل اختياري
+try:
+    import psycopg2
+    PSYCOPG2_AVAILABLE = True
+except ImportError:
+    PSYCOPG2_AVAILABLE = False
+    print("تحذير: مكتبة psycopg2 غير متوفرة - سيتم تعطيل ميزة قاعدة البيانات")
+
+try:
+    from gemini_ai import hybrid_ai
+except ImportError:
+    print("تحذير: مكتبة Gemini غير متوفرة")
+    hybrid_ai = None
 
 app = FastAPI()
 cache = Cache(".cache")
@@ -33,6 +47,8 @@ class SmartMemory:
         
     def get_connection(self):
         """الحصول على اتصال قاعدة البيانات"""
+        if not PSYCOPG2_AVAILABLE:
+            return None
         return psycopg2.connect(self.db_url)
     
     def hash_question(self, question: str) -> str:
@@ -43,10 +59,17 @@ class SmartMemory:
     
     def search_memory(self, question: str) -> Optional[Dict]:
         """البحث في الذاكرة عن سؤال مشابه"""
+        if not PSYCOPG2_AVAILABLE:
+            return None
+            
         question_hash = self.hash_question(question)
         
         try:
-            with self.get_connection() as conn:
+            conn = self.get_connection()
+            if not conn:
+                return None
+                
+            with conn:
                 with conn.cursor() as cur:
                     # البحث بالهاش أولاً
                     cur.execute("""
@@ -102,10 +125,17 @@ class SmartMemory:
     
     def save_to_memory(self, question: str, answer: str, category: str = None, confidence: float = 0.9, source: str = 'auto'):
         """حفظ سؤال وإجابة في الذاكرة"""
+        if not PSYCOPG2_AVAILABLE:
+            return False
+            
         question_hash = self.hash_question(question)
         
         try:
-            with self.get_connection() as conn:
+            conn = self.get_connection()
+            if not conn:
+                return False
+                
+            with conn:
                 with conn.cursor() as cur:
                     cur.execute("""
                         INSERT INTO smart_memory (question_hash, question, answer, category, confidence_score, source)
@@ -125,8 +155,15 @@ class SmartMemory:
     
     def get_popular_questions(self, limit: int = 10) -> List[Dict]:
         """الحصول على الأسئلة الأكثر شيوعاً"""
+        if not PSYCOPG2_AVAILABLE:
+            return []
+            
         try:
-            with self.get_connection() as conn:
+            conn = self.get_connection()
+            if not conn:
+                return []
+                
+            with conn:
                 with conn.cursor() as cur:
                     cur.execute("""
                         SELECT question, usage_count, last_used
@@ -1687,6 +1724,24 @@ async def form_post(question: str = Form(...), mode: str = Form("summary"), deta
         reminder_panel = get_reminder_message()
         return HTML_TEMPLATE.format(result_panel=reminder_panel)
 
+    # 🧠 البحث في الذاكرة الذكية أولاً
+    memory_result = smart_memory.search_memory(q)
+    if memory_result and memory_result.get('confidence', 0) > 0.7:
+        # وجدنا إجابة موثوقة في الذاكرة
+        memory_panel = f"""
+        <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+            <h3>🧠 من ذاكرة بسام الذكية</h3>
+            <div style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 15px 0; text-align: right;">
+                <p>{memory_result['answer']}</p>
+            </div>
+            <div style="font-size: 0.9em; opacity: 0.8;">
+                ✅ تم استخدام هذه الإجابة {memory_result['usage_count']} مرة | الثقة: {memory_result['confidence']*100:.0f}%
+            </div>
+        </div>
+        """
+        tools = make_toolbar_copy_pdf(q, mode, memory_result['answer'])
+        return HTML_TEMPLATE.format(result_panel=tools + memory_panel)
+
     # ✨ كشف النية للوظائف الجديدة
     intent_detector = IntentDetector()
     detected_intent = intent_detector.detect_intent(q)
@@ -1696,17 +1751,43 @@ async def form_post(question: str = Form(...), mode: str = Form("summary"), deta
         panel = handle_age_calculation(q)
         answer_text = "تم حساب العمر بنجاح"
         tools = make_toolbar_copy_pdf(q, mode, answer_text)
+        # حفظ في الذاكرة
+        smart_memory.save_to_memory(q, answer_text, 'age_calculation', 0.9)
         return HTML_TEMPLATE.format(result_panel=tools + panel)
     elif detected_intent == 'math_calculation':
         panel = handle_math_calculation(q)
         answer_text = "تم إجراء العملية الحسابية بنجاح"
         tools = make_toolbar_copy_pdf(q, mode, answer_text)
+        # حفظ في الذاكرة
+        smart_memory.save_to_memory(q, answer_text, 'math_calculation', 0.9)
         return HTML_TEMPLATE.format(result_panel=tools + panel)
     elif detected_intent == 'unit_conversion':
         panel = handle_unit_conversion(q)
         answer_text = "تم تحويل الوحدة بنجاح"
         tools = make_toolbar_copy_pdf(q, mode, answer_text)
+        # حفظ في الذاكرة
+        smart_memory.save_to_memory(q, answer_text, 'unit_conversion', 0.9)
         return HTML_TEMPLATE.format(result_panel=tools + panel)
+    
+    # 🤖 محاولة الذكاء الاصطناعي للأسئلة البرمجية والشبكات
+    if detected_intent in ['programming', 'networking'] and hybrid_ai and hybrid_ai.is_available():
+        ai_answer = hybrid_ai.answer_question(q)
+        if ai_answer:
+            ai_panel = f"""
+            <div style="background: linear-gradient(135deg, #ff6b6b, #ffa500); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+                <h3>🤖 إجابة من الذكاء الاصطناعي</h3>
+                <div style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 15px 0; text-align: right;">
+                    <p>{ai_answer}</p>
+                </div>
+                <div style="font-size: 0.9em; opacity: 0.8;">
+                    💡 تم توليد هذه الإجابة خصيصاً لسؤالك | Powered by Gemini AI
+                </div>
+            </div>
+            """
+            # حفظ في الذاكرة
+            smart_memory.save_to_memory(q, ai_answer, detected_intent, 0.85, 'gemini_ai')
+            tools = make_toolbar_copy_pdf(q, mode, ai_answer)
+            return HTML_TEMPLATE.format(result_panel=tools + ai_panel)
 
     # المعالجات العادية
     if mode == "prices":

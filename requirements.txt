@@ -9,3 +9,5 @@ requests
 diskcache
 google-genai
 readability
+duckduckgo-search
+readability-lxml
