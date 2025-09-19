@@ -100,3 +100,12 @@ Preferred communication style: Simple, everyday language.
   - Educational and medical context exceptions
   - Bypass-resistant normalization techniques
   - Respectful Islamic reminder system
+- **LATEST UPDATE: Comprehensive Unit Conversion System**
+  - Enhanced unit conversion system supporting weights, lengths, and volumes
+  - Added support for Arabic and English units with exact mapping
+  - Weight conversions: kg, g, mg, lb, oz, ton with gram-based calculations
+  - Length conversions: m, cm, mm, km, ft, in, yd, mi with meter-based calculations  
+  - Volume conversions: l, ml, cup, tbsp, tsp, gal, qt, pt with liter-based calculations
+  - Intelligent intent detection for conversion queries in Arabic and English
+  - Enhanced UI with type-specific icons and detailed conversion information
+  - Pattern matching for various query formats: "حول X إلى Y", "كم يساوي X بـ Y", "convert X to Y"

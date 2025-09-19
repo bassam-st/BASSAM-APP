@@ -1,0 +1,189 @@
+from fastapi import FastAPI, Request, Form
+from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+import httpx, re
+from bs4 import BeautifulSoup
+
+app = FastAPI(title="Bassam App", version="1.2")
+
+# ربط القوالب والملفات الثابتة
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# ===================== 1) محوّلات الوحدات (أوزان + أطوال + أحجام) =====================
+
+AR_NUM = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+
+def _to_float(s: str):
+    s = (s or "").strip().translate(AR_NUM).replace(",", "")
+    try: return float(s)
+    except: return None
+
+# ---- الأوزان (أساس التحويل = كيلوغرام) ----
+WEIGHT_ALIASES = {
+    "كيلو": "kg", "كيلوجرام": "kg", "كجم": "kg", "كغ": "kg", "kg": "kg",
+    "جرام": "g", "غ": "g", "g": "g",
+    "ملغم": "mg", "ميليغرام": "mg", "mg": "mg",
+    "رطل": "lb", "باوند": "lb", "lb": "lb",
+    "أوقية": "oz", "اونصة": "oz", "oz": "oz",
+    "طن": "t", "طن متري": "t", "t": "t",
+}
+W_TO_KG = {"kg":1.0, "g":0.001, "mg":1e-6, "lb":0.45359237, "oz":0.028349523125, "t":1000.0}
+
+# ---- الأطوال (أساس التحويل = متر) ----
+LENGTH_ALIASES = {
+    "مم": "mm", "ميليمتر": "mm", "mm": "mm",
+    "سم": "cm", "سنتيمتر": "cm", "cm": "cm",
+    "م": "m", "متر": "m", "m": "m",
+    "كم": "km", "كيلومتر": "km", "km": "km",
+    "إنش": "in", "بوصة": "in", "انش": "in", "inch": "in", "in": "in",
+    "قدم": "ft", "قدمًا": "ft", "قدمية": "ft", "ft": "ft",
+    "ياردة": "yd", "يارد": "yd", "yd": "yd",
+    "ميل": "mi", "mi": "mi",
+}
+L_TO_M = {
+    "mm":0.001, "cm":0.01, "m":1.0, "km":1000.0,
+    "in":0.0254, "ft":0.3048, "yd":0.9144, "mi":1609.344
+}
+
+# ---- الأحجام (أساس التحويل = لتر) ----
+VOLUME_ALIASES = {
+    "مل": "ml", "ملل": "ml", "ملليلتر": "ml", "ml": "ml",
+    "ل": "l", "لتر": "l", "lt": "l", "l": "l",
+    "كوب": "cup", "كاسة": "cup", "cup": "cup",
+    "ملعقة": "tbsp", "ملعقة كبيرة": "tbsp", "tbsp": "tbsp",
+    "ملعقة صغيرة": "tsp", "tsp": "tsp",
+    "غالون": "gal", "جالون": "gal", "gal": "gal",
+    "باينت": "pt", "pint": "pt", "pt": "pt",
+    "كوارت": "qt", "quart": "qt", "qt": "qt",
+}
+V_TO_L = {
+    "ml": 0.001, "l": 1.0,
+    "cup": 0.2365882365, "tbsp": 0.0147867648, "tsp": 0.0049289216,
+    "gal": 3.785411784, "pt": 0.473176473, "qt": 0.946352946
+}
+
+# تجميع القواميس لفحص نوع الوحدة
+ALL_ALIASES = {**WEIGHT_ALIASES, **LENGTH_ALIASES, **VOLUME_ALIASES}
+TYPE_OF_UNIT = {}
+for k, v in WEIGHT_ALIASES.items(): TYPE_OF_UNIT[v] = "W"
+for k, v in LENGTH_ALIASES.items(): TYPE_OF_UNIT[v] = "L"
+for k, v in VOLUME_ALIASES.items(): TYPE_OF_UNIT[v] = "V"
+
+def _norm_unit(u: str):
+    u = (u or "").strip().lower().translate(AR_NUM)
+    return ALL_ALIASES.get(u, "")
+
+# أنماط عربية شائعة: "70 كيلو إلى رطل" / "500 غرام كم أوقية" / "1 طن يساوي كم كيلو" / "كم يساوي 2 متر بالقدم"
+CONV_RE = re.compile(
+    r'(?:كم\s*يساوي\s*)?([\d\.,]+)\s*(\S+)\s*(?:إلى|ل|=|يساوي|بال|بـ)\s*(\S+)',
+    re.IGNORECASE
+)
+
+def convert_query_ar(query: str):
+    """
+    يحاول فهم السؤال وتحويله. يرجع dict فيه نص + HTML إن نجح، أو None إن لم يكن تحويلًا.
+    """
+    q = (query or "").strip()
+    m = CONV_RE.search(q)
+    if not m:
+        return None
+    val_s, u_from_s, u_to_s = m.groups()
+    value = _to_float(val_s)
+    u_from = _norm_unit(u_from_s)
+    u_to   = _norm_unit(u_to_s)
+    if value is None or not u_from or not u_to:
+        return None
+
+    # نوع الوحدة (وزن/طول/حجم) يجب أن يتطابق
+    t_from = TYPE_OF_UNIT.get(u_from)
+    t_to   = TYPE_OF_UNIT.get(u_to)
+    if not t_from or t_from != t_to:
+        return None  # لا نحول وزن إلى طول مثلًا
+
+    # تحويل حسب النوع
+    if t_from == "W":
+        kg = value * W_TO_KG[u_from]
+        res = kg / W_TO_KG[u_to]
+    elif t_from == "L":
+        m = value * L_TO_M[u_from]
+        res = m / L_TO_M[u_to]
+    else:  # "V"
+        l = value * V_TO_L[u_from]
+        res = l / V_TO_L[u_to]
+
+    text = f"{value:g} {u_from_s} ≈ {res:,.6f} {u_to_s}"
+    html = f'<div class="card"><strong>النتيجة:</strong> {text}</div>'
+    return {"text": text, "html": html}
+
+# ===================== 2) واجهة HTML =====================
+
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
+
+# المعالجة الرئيسية
+@app.post("/", response_class=HTMLResponse)
+async def run(request: Request, question: str = Form(...), mode: str = Form("summary")):
+    q = (question or "").strip()
+    answer_text = ""
+    result_panel = ""
+
+    # أولًا: حاول محوّل الوحدات (أوزان/أطوال/أحجام)
+    conv = convert_query_ar(q)
+    if conv:
+        return templates.TemplateResponse("index.html", {
+            "request": request, "q": q, "mode": mode,
+            "answer_text": conv["text"], "result_panel": conv["html"]
+        })
+
+    # ثانيًا: إن لم يكن تحويل، نفذ الوضع المطلوب
+    try:
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get("https://duckduckgo.com/html/", params={"q": q})
+            soup = BeautifulSoup(r.text, "html.parser")
+            snippets = [re.sub(r"\s+", " ", el.get_text()) for el in soup.select(".result__snippet")]
+            links = [a.get("href") for a in soup.select(".result__a")]
+
+        if mode == "summary":
+            parts = []
+            for s in snippets[:3]:
+                parts.append(s)
+            answer_text = " ".join(parts) if parts else "لم أجد ملخصًا مناسبًا."
+            result_panel = "<br>".join(parts) if parts else "لم أجد ملخصًا مناسبًا."
+
+        elif mode == "prices":
+            parts = []
+            for s, a in zip(snippets, links):
+                if any(x in s for x in ["$", "USD", "SAR", "ر.س", "AED", "د.إ", "EGP", "ج.م"]):
+                    parts.append(f"{s} — <a target='_blank' href='{a}'>فتح المصدر</a>")
+                if len(parts) >= 8:
+                    break
+            answer_text = BeautifulSoup("<br>".join(parts), "html.parser").get_text(" ")
+            result_panel = "<br>".join(parts) if parts else "لم أجد أسعارًا واضحة؛ افتح الروابط للتحقق."
+
+        elif mode == "images":
+            # رابط سريع لبحث الصور (حر ومباشر)
+            result_panel = f"<div class='card'><a target='_blank' href='https://duckduckgo.com/?q={q}&iax=images&ia=images'>افتح نتائج الصور 🔗</a></div>"
+            answer_text = "نتائج صور — افتح الرابط."
+
+        else:
+            answer_text = "وضع غير معروف."
+            result_panel = "وضع غير معروف."
+
+    except Exception as e:
+        answer_text = f"حدث خطأ: {e}"
+        result_panel = answer_text
+
+    return templates.TemplateResponse("index.html", {
+        "request": request,
+        "q": q,
+        "mode": mode,
+        "answer_text": answer_text,
+        "result_panel": result_panel
+    })
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}

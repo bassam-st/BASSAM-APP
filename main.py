@@ -359,7 +359,9 @@ class SafeCalculator:
 
 # تم نقل WEIGHT_CONVERSIONS إلى WEIGHT_UNIT_MAPPING أدناه
 
-# تحويل الأوزان والقياسات - قاموس محسن للتطابق التام
+# ============== نظام تحويل الوحدات المتطور ==============
+
+# ---- تحويل الأوزان (أساس: غرام) ----
 WEIGHT_UNIT_MAPPING = {
     # الوحدات المترية
     'مليغرام': 0.001, 'ملغرام': 0.001, 'ملغ': 0.001, 'mg': 0.001, 'milligram': 0.001,
@@ -368,9 +370,85 @@ WEIGHT_UNIT_MAPPING = {
     'طن': 1000000, 'ton': 1000000, 'tonne': 1000000, 'metric_ton': 1000000,
     
     # الوحدات الإمبراطورية
-    'أوقية': 28.3495, 'اونصة': 28.3495, 'أونصة': 28.3495, 'oz': 28.3495, 'ounce': 28.3495,
-    'رطل': 453.592, 'باوند': 453.592, 'lb': 453.592, 'lbs': 453.592, 'pound': 453.592, 'pounds': 453.592,
+    'أوقية': 28.349523125, 'اونصة': 28.349523125, 'أونصة': 28.349523125, 'oz': 28.349523125, 'ounce': 28.349523125,
+    'رطل': 453.59237, 'باوند': 453.59237, 'lb': 453.59237, 'lbs': 453.59237, 'pound': 453.59237, 'pounds': 453.59237,
 }
+
+# ---- تحويل الأطوال (أساس: متر) ----
+LENGTH_UNIT_MAPPING = {
+    # الوحدات المترية
+    'ميليمتر': 0.001, 'ملم': 0.001, 'مم': 0.001, 'mm': 0.001, 'millimeter': 0.001,
+    'سنتيمتر': 0.01, 'سانتيمتر': 0.01, 'سم': 0.01, 'cm': 0.01, 'centimeter': 0.01,
+    'متر': 1, 'm': 1, 'meter': 1, 'metre': 1,
+    'كيلومتر': 1000, 'كيلو متر': 1000, 'كم': 1000, 'km': 1000, 'kilometer': 1000,
+    
+    # الوحدات الإمبراطورية
+    'بوصة': 0.0254, 'إنش': 0.0254, 'انش': 0.0254, 'inch': 0.0254, 'in': 0.0254,
+    'قدم': 0.3048, 'قدمًا': 0.3048, 'قدمية': 0.3048, 'foot': 0.3048, 'ft': 0.3048, 'feet': 0.3048,
+    'ياردة': 0.9144, 'يارد': 0.9144, 'yard': 0.9144, 'yd': 0.9144,
+    'ميل': 1609.344, 'mile': 1609.344, 'mi': 1609.344,
+}
+
+# ---- تحويل الأحجام (أساس: لتر) ----
+VOLUME_UNIT_MAPPING = {
+    # الوحدات المترية
+    'ميليلتر': 0.001, 'ملليلتر': 0.001, 'ملل': 0.001, 'مل': 0.001, 'ml': 0.001, 'milliliter': 0.001,
+    'لتر': 1, 'ليتر': 1, 'l': 1, 'liter': 1, 'litre': 1, 'lt': 1,
+    
+    # وحدات الطبخ العربية
+    'كوب': 0.2365882365, 'كاسة': 0.2365882365, 'cup': 0.2365882365,
+    'ملعقة كبيرة': 0.0147867648, 'ملعقة': 0.0147867648, 'tbsp': 0.0147867648, 'tablespoon': 0.0147867648,
+    'ملعقة صغيرة': 0.0049289216, 'tsp': 0.0049289216, 'teaspoon': 0.0049289216,
+    
+    # الوحدات الإمبراطورية
+    'غالون': 3.785411784, 'جالون': 3.785411784, 'gallon': 3.785411784, 'gal': 3.785411784,
+    'كوارت': 0.946352946, 'quart': 0.946352946, 'qt': 0.946352946,
+    'باينت': 0.473176473, 'pint': 0.473176473, 'pt': 0.473176473,
+}
+
+# تجميع جميع قواميس الوحدات للتعرف على نوع الوحدة
+ALL_UNIT_TYPES = {
+    **{unit: 'weight' for unit in WEIGHT_UNIT_MAPPING.keys()},
+    **{unit: 'length' for unit in LENGTH_UNIT_MAPPING.keys()},
+    **{unit: 'volume' for unit in VOLUME_UNIT_MAPPING.keys()}
+}
+
+def get_unit_type_and_factor(unit: str) -> tuple:
+    """إرجاع نوع الوحدة ومعامل التحويل"""
+    unit = unit.lower().strip()
+    
+    if unit in WEIGHT_UNIT_MAPPING:
+        return 'weight', WEIGHT_UNIT_MAPPING[unit]
+    elif unit in LENGTH_UNIT_MAPPING:
+        return 'length', LENGTH_UNIT_MAPPING[unit]
+    elif unit in VOLUME_UNIT_MAPPING:
+        return 'volume', VOLUME_UNIT_MAPPING[unit]
+    else:
+        return None, None
+
+def convert_units(value: float, from_unit: str, to_unit: str) -> tuple:
+    """تحويل موحد لجميع أنواع الوحدات (أوزان، أطوال، أحجام)"""
+    # تنظيف الوحدات
+    from_unit = from_unit.lower().strip()
+    to_unit = to_unit.lower().strip()
+    
+    # الحصول على نوع ومعامل الوحدة المصدر
+    from_type, from_factor = get_unit_type_and_factor(from_unit)
+    to_type, to_factor = get_unit_type_and_factor(to_unit)
+    
+    # فحص صحة الوحدات
+    if from_type is None or to_type is None:
+        return None, f"وحدة غير معروفة: {from_unit if from_type is None else to_unit}"
+    
+    # فحص تطابق نوع الوحدات
+    if from_type != to_type:
+        return None, f"لا يمكن تحويل {from_type} إلى {to_type}"
+    
+    # تحويل إلى الوحدة الأساسية ثم إلى الوحدة المطلوبة
+    base_value = value * from_factor
+    result = base_value / to_factor
+    
+    return result, None
 
 def convert_weight(value: float, from_unit: str, to_unit: str) -> Optional[float]:
     """تحويل الأوزان بين الوحدات المختلفة - تحسن للتطابق التام"""
@@ -457,64 +535,98 @@ def handle_math_calculation(question: str) -> str:
     </div>
     """
 
-def handle_weight_conversion(question: str) -> str:
-    """معالج تحويل الأوزان"""
-    # أنماط تحويل الوزن
+def handle_unit_conversion(question: str) -> str:
+    """معالج تحويل الوحدات الموحد (أوزان، أطوال، أحجام)"""
+    # أنماط تحويل الوحدات مع دعم الوحدات متعددة الكلمات
     patterns = [
-        r'حول\s+([٠-٩\d.]+)\s*(\w+)\s+(?:إلى|الى|ل)\s*(\w+)',
-        r'تحويل\s+([٠-٩\d.]+)\s*(\w+)\s+(?:إلى|الى|ل)\s*(\w+)',
-        r'([٠-٩\d.]+)\s*(\w+)\s+(?:كم|يساوي|=)\s*(\w+)',
-        r'([٠-٩\d.]+)\s*(\w+)\s+to\s+(\w+)',
+        r'حول\s+([٠-٩\d.]+)\s+([\w\u0600-\u06FF\s]+?)\s+(?:إلى|الى|ل)\s+([\w\u0600-\u06FF\s]+)',
+        r'تحويل\s+([٠-٩\d.]+)\s+([\w\u0600-\u06FF\s]+?)\s+(?:إلى|الى|ل)\s+([\w\u0600-\u06FF\s]+)',
+        r'([٠-٩\d.]+)\s+([\w\u0600-\u06FF\s]+?)\s+(?:كم|يساوي|=)\s+([\w\u0600-\u06FF\s]+)',
+        r'([٠-٩\d.]+)\s+([\w\u0600-\u06FF\s]+?)\s+to\s+([\w\u0600-\u06FF\s]+)',
+        r'كم\s+يساوي\s+([٠-٩\d.]+)\s+([\w\u0600-\u06FF\s]+?)\s+(?:بال|بـ|في)\s+([\w\u0600-\u06FF\s]+)',
     ]
     
     for pattern in patterns:
         match = re.search(pattern, question, re.IGNORECASE)
         if match:
-            value_str = normalize_arabic_digits(match.group(1))
-            from_unit = match.group(2).lower()
-            to_unit = match.group(3).lower()
-            
             try:
+                value_str = match.group(1)
+                from_unit = match.group(2).strip()
+                to_unit = match.group(3).strip()
+                
+                # تحويل الأرقام العربية
+                value_str = ''.join(str(ord(c) - ord('٠')) if '٠' <= c <= '٩' else c for c in value_str)
                 value = float(value_str)
-                result = convert_weight(value, from_unit, to_unit)
+                
+                # استخدام الدالة الموحدة للتحويل
+                result, error = convert_units(value, from_unit, to_unit)
                 
                 if result is not None:
+                    # تحديد نوع الوحدة للعرض
+                    unit_type, _ = get_unit_type_and_factor(from_unit)
+                    if unit_type == 'weight':
+                        icon = "⚖️"
+                        type_name = "الوزن"
+                    elif unit_type == 'length':
+                        icon = "📏"
+                        type_name = "الطول"
+                    elif unit_type == 'volume':
+                        icon = "🥤"
+                        type_name = "الحجم"
+                    else:
+                        icon = "🔄"
+                        type_name = "الوحدة"
+                    
                     # تنسيق النتيجة
                     if result.is_integer():
                         result_str = str(int(result))
                     else:
-                        result_str = f"{result:.4f}".rstrip('0').rstrip('.')
+                        result_str = f"{result:.6f}".rstrip('0').rstrip('.')
                     
                     return f"""
-                    <div style="background: linear-gradient(135deg, #e056fd, #f093fb); color: white; padding: 20px; border-radius: 10px; text-align: center;">
-                        <h3>⚖️ تحويل الأوزان</h3>
-                        <div style="background: rgba(255,255,255,0.2); padding: 15px; border-radius: 10px; margin: 15px 0;">
-                            <div style="font-size: 1.5em; color: #ffd700;">
-                                <strong>{value} {from_unit} = {result_str} {to_unit}</strong>
-                            </div>
+                    <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+                        <h3>{icon} نتيجة تحويل {type_name}</h3>
+                        <div style="font-size: 1.2em; margin: 15px 0;">
+                            <strong>{value} {from_unit} = {result_str} {to_unit}</strong>
                         </div>
-                        <div style="font-size: 0.9em; opacity: 0.8;">
-                            تحويل دقيق للأوزان والقياسات
+                        <div style="background: rgba(255,255,255,0.2); padding: 10px; border-radius: 5px; margin-top: 10px;">
+                            تم التحويل بنجاح باستخدام المعايير الدولية
                         </div>
                     </div>
                     """
-                
-            except ValueError:
-                pass
+                else:
+                    return f"""
+                    <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+                        <h3>⚠️ خطأ في التحويل</h3>
+                        <p>{error}</p>
+                        <p>تأكد من صحة الوحدات المستخدمة</p>
+                    </div>
+                    """
+            except Exception as e:
+                return f"""
+                <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+                    <h3>⚠️ خطأ في التحويل</h3>
+                    <p>حدث خطأ: {str(e)}</p>
+                </div>
+                """
     
     return """
-    <div style="background: linear-gradient(135deg, #ff6b6b, #ffa500); color: white; padding: 20px; border-radius: 10px; text-align: center;">
-        <h3>⚖️ تحويل الأوزان والقياسات</h3>
-        <p>اكتب طلب التحويل مثل:</p>
-        <ul style="text-align: right; margin: 15px 0;">
-            <li><strong>حول 70 كيلو إلى رطل</strong></li>
-            <li><strong>تحويل 2 رطل إلى غرام</strong></li>
-            <li><strong>500 غرام كم أوقية</strong></li>
-            <li><strong>1 طن يساوي كم كيلو</strong></li>
-        </ul>
-        <p style="font-size: 0.9em; margin-top: 15px;">
-            الوحدات المدعومة: كيلو، غرام، رطل، أوقية، طن، ملغرام
-        </p>
+    <div style="background: linear-gradient(135deg, #667eea, #764ba2); color: white; padding: 20px; border-radius: 10px; text-align: center;">
+        <h3>🔄 تحويل الوحدات</h3>
+        <p>لم أتمكن من فهم طلب التحويل. جرب:</p>
+        <div style="text-align: right; margin: 15px;">
+            <h4>⚖️ الأوزان:</h4>
+            <li><strong>حول 5 كيلو إلى رطل</strong></li>
+            <li><strong>تحويل 200 غرام إلى أوقية</strong></li>
+            
+            <h4>📏 الأطوال:</h4>
+            <li><strong>حول 100 سم إلى متر</strong></li>
+            <li><strong>تحويل 5 قدم إلى متر</strong></li>
+            
+            <h4>🥤 الأحجام:</h4>
+            <li><strong>حول 2 لتر إلى كوب</strong></li>
+            <li><strong>تحويل 500 مل إلى لتر</strong></li>
+        </div>
     </div>
     """
 
@@ -531,10 +643,19 @@ class IntentDetector:
                 r'\d+\s*[+\-*/]\s*\d+', r'\d+\s*%.*من', r'نسبة.*مئوية',
                 r'calculate', r'compute', r'math'
             ],
-            'weight_conversion': [
+            'unit_conversion': [
+                # تحويل الأوزان
                 r'حول.*(?:كيلو|غرام|رطل|أوقية|طن)', r'تحويل.*(?:كيلو|غرام|رطل|أوقية|طن)',
                 r'(?:كيلو|غرام|رطل|أوقية|طن).*(?:إلى|الى|يساوي|كم)',
-                r'convert.*(?:kg|gram|pound|ounce|ton)', r'(?:kg|g|lb|oz|ton).*to.*(?:kg|g|lb|oz|ton)'
+                # تحويل الأطوال
+                r'حول.*(?:متر|سم|مم|قدم|إنش|ياردة|ميل|كم)', r'تحويل.*(?:متر|سم|مم|قدم|إنش|ياردة|ميل|كم)',
+                r'(?:متر|سم|مم|قدم|إنش|ياردة|ميل|كم).*(?:إلى|الى|يساوي|كم)',
+                # تحويل الأحجام
+                r'حول.*(?:لتر|مل|كوب|ملعقة|غالون)', r'تحويل.*(?:لتر|مل|كوب|ملعقة|غالون)',
+                r'(?:لتر|مل|كوب|ملعقة|غالون).*(?:إلى|الى|يساوي|كم)',
+                # English patterns
+                r'convert.*(?:kg|gram|pound|ounce|ton|meter|cm|mm|feet|inch|yard|mile|liter|ml|cup|gallon)',
+                r'(?:kg|g|lb|oz|ton|m|cm|mm|ft|in|yd|mi|l|ml|cup|gal).*to.*(?:kg|g|lb|oz|ton|m|cm|mm|ft|in|yd|mi|l|ml|cup|gal)'
             ],
             'programming': [
                 r'(?:بايثون|python|javascript|js|html|css|php|java|c\+\+|c#)',
@@ -1454,9 +1575,9 @@ async def form_post(question: str = Form(...), mode: str = Form("summary"), deta
         answer_text = "تم إجراء العملية الحسابية بنجاح"
         tools = make_toolbar_copy_pdf(q, mode, answer_text)
         return HTML_TEMPLATE.format(result_panel=tools + panel)
-    elif detected_intent == 'weight_conversion':
-        panel = handle_weight_conversion(q)
-        answer_text = "تم تحويل الوزن بنجاح"
+    elif detected_intent == 'unit_conversion':
+        panel = handle_unit_conversion(q)
+        answer_text = "تم تحويل الوحدة بنجاح"
         tools = make_toolbar_copy_pdf(q, mode, answer_text)
         return HTML_TEMPLATE.format(result_panel=tools + panel)
 
