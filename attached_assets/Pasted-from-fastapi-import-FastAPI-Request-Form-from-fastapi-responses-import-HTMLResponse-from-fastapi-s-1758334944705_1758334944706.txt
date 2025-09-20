@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 
 # --- للتلخيص والترتيب ---
 from sumy.nlp.tokenizers import Tokenizer
-from sumy.parsers.html import HtmlParser
+from sumy.parsers.plaintext import PlainTextParser
 from sumy.summarizers.text_rank import TextRankSummarizer
 from rank_bm25 import BM25Okapi
 from rapidfuzz import fuzz
@@ -142,18 +142,12 @@ def fuzz_boost(question: str, sentences: list, top_k=6):
     scored.sort(reverse=True, key=lambda x: x[0])
     return [s for _, s in scored[:top_k]]
 def textrank_summary(text: str, max_sentences=4):
-    try:
-        from sumy.parsers.plaintext import PlainTextParser
-        parser = PlainTextParser.from_string(text, Tokenizer("english"))
-        summarizer = TextRankSummarizer()
-        if len(text.split()) < 80:
-            return text.strip()
-        summary_sents = summarizer(parser.document, max_sentences)
-        return " ".join(str(s).strip() for s in summary_sents)
-    except:
-        # fallback - simple sentence selection
-        sentences = text.split('.')
-        return '. '.join(sentences[:max_sentences]).strip()
+    parser = PlainTextParser.from_string(text, Tokenizer("arabic"))
+    summarizer = TextRankSummarizer()
+    if len(text.split()) < 80:
+        return text.strip()
+    summary_sents = summarizer(parser.document, max_sentences)
+    return " ".join(str(s).strip() for s in summary_sents)
 def summarize_advanced(question: str, page_texts: list, max_final_sents=4):
     candidate_sents = []
     for t in page_texts:
