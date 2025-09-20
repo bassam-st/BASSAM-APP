@@ -555,46 +555,198 @@ async def form_post(question: str = Form(...), mode: str = Form("summary")):
                 smart_memory.save_to_memory(q, ai_answer, 'ai_generated', 0.85, 'gemini_ai')
                 return HTML_TEMPLATE.format(result_panel=ai_panel)
 
-    # المعالجات العادية
+    # البحث الحقيقي باستخدام DuckDuckGo
     try:
         if mode == "summary" or mode == "smart":
-            # بحث أساسي مؤقت
-            basic_answer = f"هذا سؤال ممتاز: '{q}'. نحن نعمل على تطوير إجابة شاملة لك."
+            # بحث فعلي عن المعلومات
+            search_results = []
+            answer_text = ""
             
-            if "ذكاء اصطناعي" in q or "AI" in q.upper():
-                basic_answer = "الذكاء الاصطناعي هو تقنية تهدف إلى تطوير أنظمة حاسوبية قادرة على أداء مهام تتطلب ذكاءً بشرياً، مثل التعلم والتحليل واتخاذ القرارات."
-            elif "python" in q.lower() or "بايثون" in q:
-                basic_answer = "Python هي لغة برمجة عالية المستوى، سهلة التعلم ومتعددة الاستخدامات. تُستخدم في تطوير الويب، الذكاء الاصطناعي، وتحليل البيانات."
-            
-            result_panel = f"""
-            <div class="result-card">
-                <div class="result-header">
-                    <h3>📄 نتائج البحث</h3>
-                    <small>وضع: {mode}</small>
+            try:
+                with DDGS() as ddgs:
+                    # البحث عن النتائج
+                    results = list(ddgs.text(q, max_results=5))
+                    search_results = results
+                    
+                    if results:
+                        # تجميع أفضل النتائج
+                        combined_info = ""
+                        sources = []
+                        
+                        for i, result in enumerate(results[:3]):
+                            snippet = result.get('body', '').strip()
+                            title = result.get('title', '').strip()
+                            url = result.get('href', '')
+                            
+                            if snippet:
+                                combined_info += f"{title}: {snippet}\n\n"
+                                sources.append(f"<a href='{url}' target='_blank'>{title}</a>")
+                        
+                        # إنشاء إجابة ذكية
+                        if combined_info:
+                            # تلخيص ذكي للمعلومات
+                            sentences = combined_info.split('.')
+                            key_info = []
+                            
+                            for sentence in sentences[:8]:
+                                if len(sentence.strip()) > 20 and any(word in sentence.lower() for word in q.lower().split()):
+                                    key_info.append(sentence.strip())
+                            
+                            if key_info:
+                                answer_text = '. '.join(key_info[:3]) + '.'
+                            else:
+                                answer_text = sentences[0].strip() + '.' if sentences else "معلومات متوفرة في المصادر أدناه."
+                            
+                            # إضافة إجابات محددة للمواضيع الشائعة
+                            if "ذكاء اصطناعي" in q or "AI" in q.upper():
+                                answer_text = "الذكاء الاصطناعي هو تقنية حديثة تمكن الآلات من محاكاة الذكاء البشري في المهام مثل التعلم والتفكير واتخاذ القرارات. " + answer_text
+                            elif "python" in q.lower() or "بايثون" in q:
+                                answer_text = "Python لغة برمجة قوية ومرنة تستخدم في تطوير المواقع والذكاء الاصطناعي وتحليل البيانات. " + answer_text
+                        else:
+                            answer_text = "تم العثور على معلومات ذات صلة في المصادر أدناه."
+                        
+                        # بناء لوحة النتائج
+                        sources_html = "<br>".join([f"📎 {source}" for source in sources[:3]])
+                        
+                        result_panel = f"""
+                        <div class="result-card">
+                            <div class="result-header">
+                                <h3>📄 نتائج البحث المباشر</h3>
+                                <small>وضع: {mode} | مصادر موثوقة</small>
+                            </div>
+                            <div class="card">
+                                <h4>الإجابة:</h4>
+                                <p>{answer_text}</p>
+                                <br>
+                                <h4>المصادر:</h4>
+                                <div style="font-size: 0.9em; line-height: 1.6;">
+                                    {sources_html}
+                                </div>
+                            </div>
+                            <div class="toolbar">
+                                <button class="toolbar-btn" onclick="copyText('{answer_text}')">📋 نسخ الإجابة</button>
+                            </div>
+                        </div>
+                        """
+                        
+                        # حفظ في الذاكرة الذكية
+                        smart_memory.save_to_memory(q, answer_text, 'web_search', 0.8, 'duckduckgo')
+                        
+                    else:
+                        # لا توجد نتائج
+                        result_panel = f"""
+                        <div class="result-card">
+                            <div class="result-header">
+                                <h3>⚠️ لم يتم العثور على نتائج</h3>
+                            </div>
+                            <div class="card">
+                                <p>عذراً، لم أتمكن من العثور على معلومات كافية حول: {q}</p>
+                                <p>جرب إعادة صياغة السؤال أو استخدم كلمات مفتاحية مختلفة.</p>
+                            </div>
+                        </div>
+                        """
+                        
+            except Exception as search_error:
+                print(f"خطأ في البحث: {search_error}")
+                # إجابة احتياطية عند فشل البحث
+                basic_answer = f"أعتذر، واجهت مشكلة في البحث عن: {q}. سأحاول تقديم إجابة عامة."
+                
+                if "ذكاء اصطناعي" in q or "AI" in q.upper():
+                    basic_answer = "الذكاء الاصطناعي هو مجال في علوم الحاسوب يهدف إلى إنشاء أنظمة قادرة على أداء مهام تتطلب ذكاءً بشرياً."
+                elif "python" in q.lower() or "بايثون" in q:
+                    basic_answer = "Python لغة برمجة عالية المستوى، سهلة التعلم ومتعددة الاستخدامات في التطوير والذكاء الاصطناعي."
+                
+                result_panel = f"""
+                <div class="result-card">
+                    <div class="result-header">
+                        <h3>📄 إجابة احتياطية</h3>
+                        <small>وضع: {mode} | مؤقت</small>
+                    </div>
+                    <div class="card">
+                        <p>{basic_answer}</p>
+                    </div>
+                    <div class="toolbar">
+                        <button class="toolbar-btn" onclick="copyText('{basic_answer}')">📋 نسخ</button>
+                    </div>
                 </div>
-                <div class="card">
-                    <p>{basic_answer}</p>
-                </div>
-                <div class="toolbar">
-                    <button class="toolbar-btn" onclick="copyText('{basic_answer}')">📋 نسخ</button>
-                </div>
-            </div>
-            """
-            
-            # حفظ في الذاكرة
-            smart_memory.save_to_memory(q, basic_answer, 'general_search', 0.7)
+                """
+                
+                smart_memory.save_to_memory(q, basic_answer, 'fallback', 0.6)
             
         elif mode == "prices":
-            result_panel = f"""
-            <div class="result-card">
-                <div class="result-header">
-                    <h3>💰 بحث أسعار</h3>
+            # بحث الأسعار الحقيقي
+            try:
+                with DDGS() as ddgs:
+                    price_query = f"{q} price سعر ثمن"
+                    results = list(ddgs.text(price_query, max_results=8))
+                    
+                    price_info = []
+                    for result in results:
+                        snippet = result.get('body', '')
+                        title = result.get('title', '')
+                        url = result.get('href', '')
+                        
+                        # البحث عن أرقام الأسعار
+                        if any(currency in snippet.lower() for currency in ['$', 'usd', 'sar', 'ر.س', 'aed', 'د.إ', 'egp', 'ج.م', 'price', 'سعر', 'ثمن']):
+                            price_info.append({
+                                'title': title,
+                                'snippet': snippet[:200] + '...',
+                                'url': url
+                            })
+                        
+                        if len(price_info) >= 5:
+                            break
+                    
+                    if price_info:
+                        prices_html = ""
+                        for item in price_info:
+                            prices_html += f"""
+                            <div style="border: 1px solid #e2e8f0; padding: 15px; margin: 10px 0; border-radius: 8px;">
+                                <h4 style="color: #667eea; margin-bottom: 8px;">{item['title']}</h4>
+                                <p style="margin-bottom: 8px;">{item['snippet']}</p>
+                                <a href="{item['url']}" target="_blank" class="source-link">🔗 فتح المصدر</a>
+                            </div>
+                            """
+                        
+                        result_panel = f"""
+                        <div class="result-card">
+                            <div class="result-header">
+                                <h3>💰 نتائج البحث عن الأسعار</h3>
+                                <small>تم العثور على {len(price_info)} نتيجة</small>
+                            </div>
+                            <div class="card">
+                                {prices_html}
+                            </div>
+                        </div>
+                        """
+                    else:
+                        result_panel = f"""
+                        <div class="result-card">
+                            <div class="result-header">
+                                <h3>💰 بحث أسعار</h3>
+                            </div>
+                            <div class="card">
+                                <p>لم أتمكن من العثور على معلومات واضحة عن أسعار: {q}</p>
+                                <p>جرب البحث في:</p>
+                                <ul>
+                                    <li><a href="https://www.amazon.ae/s?k={q}" target="_blank">أمازون الإمارات</a></li>
+                                    <li><a href="https://www.noon.com/uae-en/search/?q={q}" target="_blank">نون</a></li>
+                                    <li><a href="https://www.alibaba.com/trade/search?SearchText={q}" target="_blank">علي بابا</a></li>
+                                </ul>
+                            </div>
+                        </div>
+                        """
+            except Exception as e:
+                result_panel = f"""
+                <div class="result-card">
+                    <div class="result-header">
+                        <h3>💰 بحث أسعار</h3>
+                    </div>
+                    <div class="card">
+                        <p>حدث خطأ أثناء البحث عن الأسعار. جرب البحث مباشرة في المواقع التجارية.</p>
+                    </div>
                 </div>
-                <div class="card">
-                    <p>نحن نعمل على تطوير نظام بحث الأسعار. في الوقت الحالي، يرجى البحث في المواقع التجارية مثل أمازون ونون.</p>
-                </div>
-            </div>
-            """
+                """
             
         elif mode == "images":
             result_panel = f"""
@@ -607,6 +759,21 @@ async def form_post(question: str = Form(...), mode: str = Form("summary")):
                     <a href="https://duckduckgo.com/?q={q}&iax=images&ia=images" target="_blank" class="source-link">
                         🔗 فتح نتائج الصور في DuckDuckGo
                     </a>
+                </div>
+            </div>
+            """
+        
+            return HTML_TEMPLATE.format(result_panel=result_panel)
+        
+        else:
+            # وضع غير معروف
+            result_panel = f"""
+            <div class="result-card">
+                <div class="result-header">
+                    <h3>⚠️ وضع غير معروف</h3>
+                </div>
+                <div class="card">
+                    <p>الوضع المطلوب '{mode}' غير مدعوم.</p>
                 </div>
             </div>
             """
