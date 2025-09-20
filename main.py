@@ -68,9 +68,14 @@ def _safe_eval(expr: str) -> float:
 
 def try_calc_ar(question: str):
     if not question: return None
+    
+    # التحقق من وجود أرقام أو دوال رياضية
     has_digit = any(ch.isdigit() for ch in question.translate(AR_NUM))
+    has_math_func = any(func in question.lower() for func in ["sin", "cos", "tan", "log", "ln", "sqrt", "جذر"])
     has_op = any(op in question for op in ["+", "-", "×", "÷", "*", "/", "^", "أس", "√", "جذر", "(", ")", "%"])
-    if not (has_digit and has_op): return None
+    
+    # السماح بالمعادلات الرياضية حتى لو لم تحتوي على عمليات تقليدية
+    if not (has_digit and (has_op or has_math_func)): return None
     
     expr = _normalize_expr(question)
     try:
@@ -81,7 +86,8 @@ def try_calc_ar(question: str):
         steps = _analyze_expression(question, expr, final_result)
         
         return {"text": f"النتيجة النهائية: {final_result}", "html": steps}
-    except Exception:
+    except Exception as e:
+        # في حالة الخطأ، إرجاع معلومات أكثر تفصيلاً للتشخيص
         return None
 
 def _analyze_expression(original: str, expr: str, final_result: float):
