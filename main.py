@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse
-import httpx, re, ast, math
+import httpx, re, ast, math, os, psycopg2, html
+from datetime import datetime
 from bs4 import BeautifulSoup
 
 # --- للتلخيص والترتيب ---
@@ -16,6 +17,53 @@ except ImportError:
     SUMY_AVAILABLE = False
 
 app = FastAPI(title="Bassam App", version="3.0")
+
+# ===================== قاعدة البيانات =====================
+def get_db_connection():
+    """الحصول على اتصال بقاعدة البيانات"""
+    return psycopg2.connect(os.environ['DATABASE_URL'])
+
+def save_question_history(question: str, answer: str, mode: str = "summary"):
+    """حفظ السؤال والإجابة في قاعدة البيانات"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "INSERT INTO question_history (question, answer, mode) VALUES (%s, %s, %s)",
+                    (question, answer, mode)
+                )
+                conn.commit()
+    except Exception as e:
+        print(f"خطأ في حفظ السؤال: {e}")
+
+def get_question_history(limit: int = 20):
+    """استخراج الأسئلة السابقة من قاعدة البيانات"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT id, question, answer, mode, created_at FROM question_history ORDER BY created_at DESC LIMIT %s",
+                    (limit,)
+                )
+                return cursor.fetchall()
+    except Exception as e:
+        print(f"خطأ في استخراج السجل: {e}")
+        return []
+
+def get_question_by_id(question_id: int):
+    """استخراج سؤال محدد بالمعرف"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    "SELECT question, answer, mode FROM question_history WHERE id = %s",
+                    (question_id,)
+                )
+                result = cursor.fetchone()
+                return result if result else None
+    except Exception as e:
+        print(f"خطأ في استخراج السؤال: {e}")
+        return None
 
 # ===================== أدوات عامة =====================
 AR_NUM = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
@@ -92,7 +140,9 @@ def try_calc_ar(question: str):
 
 def _analyze_expression(original: str, expr: str, final_result: float):
     """تحليل التعبير الرياضي وعرض الخطوات التفصيلية مثل ChatGPT"""
-    steps_html = f'<div class="card"><h4>📐 المسألة: {original}</h4><hr>'
+    # تنظيف المدخلات من XSS
+    safe_original = html.escape(original)
+    steps_html = f'<div class="card"><h4>📐 المسألة: {safe_original}</h4><hr>'
     
     import re
     step_num = 1
@@ -333,9 +383,29 @@ def render_page(q="", mode="summary", result_panel=""):
             color: white;
             padding: 30px;
             text-align: center;
+            position: relative;
         }}
         .header h1 {{ font-size: 2.5rem; margin-bottom: 10px; }}
         .header p {{ font-size: 1.1rem; opacity: 0.9; }}
+        .history-btn {{
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-size: 0.9rem;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            border: 2px solid rgba(255,255,255,0.3);
+        }}
+        .history-btn:hover {{
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }}
         .content {{ padding: 30px; }}
         .form-group {{ margin-bottom: 20px; }}
         label {{ display: block; margin-bottom: 8px; font-weight: bold; color: #333; }}
@@ -424,6 +494,7 @@ def render_page(q="", mode="summary", result_panel=""):
 <body>
     <div class="container">
         <div class="header">
+            <a href="/history" class="history-btn">📚 السجل</a>
             <h1>🤖 تطبيق بسام</h1>
             <p>آلة حاسبة، محول وحدات، وبحث ذكي</p>
         </div>
@@ -436,7 +507,7 @@ def render_page(q="", mode="summary", result_panel=""):
                            id="question" 
                            name="question" 
                            placeholder="مثال: 5 + 3 × 2 أو كم يساوي كيلو بالرطل؟ أو ما هو الذكاء الاصطناعي؟"
-                           value="{q}"
+                           value="{html.escape(q)}"
                            required>
                 </div>
                 
@@ -483,8 +554,11 @@ def render_page(q="", mode="summary", result_panel=""):
 </html>"""
 
 @app.get("/", response_class=HTMLResponse)
-async def home():
-    return render_page()
+async def home(request: Request):
+    # قبول معاملات الاستعلام لإعادة استخدام الأسئلة السابقة
+    q = request.query_params.get("q", "")
+    mode = request.query_params.get("mode", "summary")
+    return render_page(q, mode)
 
 @app.post("/", response_class=HTMLResponse) 
 async def run(question: str = Form(...), mode: str = Form("summary")):
@@ -493,15 +567,23 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
     if not q:
         return render_page()
 
+    result_panel = ""
+    
     # آلة حاسبة
     calc = try_calc_ar(q)
     if calc:
-        return render_page(q, mode, calc["html"])
+        result_panel = calc["html"]
+        # حفظ في قاعدة البيانات
+        save_question_history(q, calc["text"], "calculator")
+        return render_page(q, mode, result_panel)
 
     # تحويل وحدات
     conv = convert_query_ar(q)
     if conv:
-        return render_page(q, mode, conv["html"])
+        result_panel = conv["html"]
+        # حفظ في قاعدة البيانات
+        save_question_history(q, conv["text"], "converter")
+        return render_page(q, mode, result_panel)
 
     # بحث/أسعار/صور
     try:
@@ -517,6 +599,8 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
             if not final_answer:
                 final_answer = " ".join(snippets[:3]) if snippets else "لم أجد ملخصًا."
             result_panel = f'<div class="card">{final_answer}</div>'
+            # حفظ في قاعدة البيانات
+            save_question_history(q, final_answer, "summary")
         elif mode=="prices":
             parts=[]
             for s,a in zip(snippets,links):
@@ -524,14 +608,222 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
                     parts.append(f'<div class="card">{s} — <a target="_blank" href="{a}">فتح المصدر</a></div>')
                 if len(parts)>=8: break
             result_panel = "".join(parts) if parts else '<div class="card">لم أجد أسعارًا واضحة.</div>'
+            # حفظ في قاعدة البيانات
+            save_question_history(q, f"وجدت {len(parts)} نتيجة للأسعار", "prices")
         elif mode=="images":
             result_panel = f'<div class="card"><a target="_blank" href="https://duckduckgo.com/?q={q}&iax=images&ia=images">افتح نتائج الصور 🔗</a></div>'
+            # حفظ في قاعدة البيانات
+            save_question_history(q, "بحث عن الصور", "images")
         else:
             result_panel = '<div class="card">وضع غير معروف</div>'
     except Exception as e:
         result_panel = f'<div class="card">خطأ: {e}</div>'
+        # حفظ في قاعدة البيانات (حتى الأخطاء للمراجعة)
+        save_question_history(q, f"خطأ: {e}", mode)
 
     return render_page(q, mode, result_panel)
+
+@app.get("/history", response_class=HTMLResponse)
+async def history():
+    """عرض صفحة السجل التاريخي للأسئلة"""
+    questions = get_question_history(50)  # آخر 50 سؤال
+    
+    history_html = f"""
+    <!DOCTYPE html>
+    <html lang="ar" dir="rtl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>📚 سجل الأسئلة - بسام</title>
+        <style>
+            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+            body {{ 
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                min-height: 100vh;
+                padding: 20px;
+                direction: rtl;
+            }}
+            .container {{
+                max-width: 900px;
+                margin: 0 auto;
+                background: white;
+                border-radius: 15px;
+                box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+                overflow: hidden;
+            }}
+            .header {{
+                background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+                color: white;
+                padding: 30px;
+                text-align: center;
+            }}
+            .header h1 {{ font-size: 2.5rem; margin-bottom: 10px; }}
+            .back-btn {{
+                display: inline-block;
+                margin-top: 15px;
+                padding: 10px 25px;
+                background: rgba(255,255,255,0.2);
+                color: white;
+                text-decoration: none;
+                border-radius: 25px;
+                transition: all 0.3s ease;
+            }}
+            .back-btn:hover {{
+                background: rgba(255,255,255,0.3);
+                transform: translateY(-2px);
+            }}
+            .content {{ padding: 30px; }}
+            .question-item {{
+                background: #f8f9fa;
+                margin: 15px 0;
+                padding: 20px;
+                border-radius: 10px;
+                border-right: 4px solid #4facfe;
+                transition: all 0.3s ease;
+            }}
+            .question-item:hover {{
+                transform: translateY(-2px);
+                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            }}
+            .question-text {{
+                font-weight: bold;
+                color: #333;
+                margin-bottom: 10px;
+                font-size: 1.1rem;
+                cursor: pointer;
+            }}
+            .question-text:hover {{ color: #4facfe; }}
+            .question-meta {{
+                font-size: 0.9rem;
+                color: #666;
+                margin-bottom: 10px;
+            }}
+            .question-answer {{
+                color: #555;
+                line-height: 1.6;
+                display: none;
+                margin-top: 10px;
+                padding-top: 10px;
+                border-top: 1px solid #eee;
+            }}
+            .use-btn {{
+                background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+                color: white;
+                border: none;
+                padding: 8px 15px;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 0.9rem;
+                margin-top: 10px;
+                transition: all 0.3s ease;
+            }}
+            .use-btn:hover {{
+                transform: translateY(-1px);
+                box-shadow: 0 3px 10px rgba(79, 172, 254, 0.3);
+            }}
+            .mode-badge {{
+                display: inline-block;
+                padding: 4px 12px;
+                border-radius: 15px;
+                font-size: 0.8rem;
+                font-weight: bold;
+                margin-left: 10px;
+            }}
+            .mode-calculator {{ background: #e8f5e8; color: #2e7d32; }}
+            .mode-converter {{ background: #fff3e0; color: #f57c00; }}
+            .mode-summary {{ background: #e3f2fd; color: #1976d2; }}
+            .mode-prices {{ background: #fce4ec; color: #c2185b; }}
+            .mode-images {{ background: #f3e5f5; color: #7b1fa2; }}
+            .empty-state {{
+                text-align: center;
+                padding: 50px;
+                color: #666;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>📚 سجل الأسئلة</h1>
+                <p>تصفح أسئلتك السابقة والعودة إليها</p>
+                <a href="/" class="back-btn">← العودة للصفحة الرئيسية</a>
+            </div>
+            
+            <div class="content">
+    """
+    
+    if not questions:
+        history_html += '''
+                <div class="empty-state">
+                    <h3>📝 لم تسأل أي سؤال بعد</h3>
+                    <p>ابدأ بطرح سؤالك الأول!</p>
+                </div>
+        '''
+    else:
+        for q_id, question, answer, mode, created_at in questions:
+            # تحديد لون الوضع
+            mode_class = f"mode-{mode}" if mode in ["calculator", "converter", "summary", "prices", "images"] else "mode-summary"
+            mode_icon = {
+                "calculator": "🧮",
+                "converter": "🔄", 
+                "summary": "📄",
+                "prices": "💰",
+                "images": "🖼️"
+            }.get(mode, "❓")
+            
+            # تنسيق التاريخ
+            try:
+                from datetime import datetime
+                if isinstance(created_at, str):
+                    date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                else:
+                    date_obj = created_at
+                formatted_date = date_obj.strftime("%Y/%m/%d %H:%M")
+            except:
+                formatted_date = "غير محدد"
+            
+            # قطع الإجابة إذا كانت طويلة
+            short_answer = answer[:200] + "..." if len(answer) > 200 else answer
+            
+            # تنظيف البيانات من XSS قبل العرض
+            safe_question = html.escape(question)
+            safe_answer = html.escape(answer)
+            safe_mode = html.escape(mode)
+            
+            history_html += f'''
+                <div class="question-item">
+                    <div class="question-text" onclick="toggleAnswer({q_id})">
+                        {safe_question}
+                    </div>
+                    <div class="question-meta">
+                        <span class="mode-badge {mode_class}">{mode_icon} {safe_mode}</span>
+                        📅 {formatted_date}
+                    </div>
+                    <div class="question-answer" id="answer-{q_id}">
+                        {safe_answer}
+                    </div>
+                    <a href="/?q={html.escape(question)}&mode={html.escape(mode)}" class="use-btn" style="text-decoration: none; display: inline-block;">
+                        🔄 استخدم هذا السؤال مرة أخرى
+                    </a>
+                </div>
+            '''
+    
+    history_html += """
+            </div>
+        </div>
+        
+        <script>
+            function toggleAnswer(id) {
+                const answer = document.getElementById('answer-' + id);
+                answer.style.display = answer.style.display === 'none' || answer.style.display === '' ? 'block' : 'none';
+            }
+        </script>
+    </body>
+    </html>
+    """
+    
+    return history_html
 
 @app.get("/healthz")
 async def healthz():
