@@ -1,23 +1,21 @@
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 import httpx, re, ast, math
 from bs4 import BeautifulSoup
 
 # --- للتلخيص والترتيب ---
-from sumy.nlp.tokenizers import Tokenizer
-from sumy.parsers.html import HtmlParser
-from sumy.summarizers.text_rank import TextRankSummarizer
-from rank_bm25 import BM25Okapi
-from rapidfuzz import fuzz
-import numpy as np
+try:
+    from sumy.nlp.tokenizers import Tokenizer
+    from sumy.parsers.plaintext import PlainTextParser
+    from sumy.summarizers.text_rank import TextRankSummarizer
+    from rank_bm25 import BM25Okapi
+    from rapidfuzz import fuzz
+    import numpy as np
+    SUMY_AVAILABLE = True
+except ImportError:
+    SUMY_AVAILABLE = False
 
 app = FastAPI(title="Bassam App", version="3.0")
-
-# ربط الملفات
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
 
 # ===================== أدوات عامة =====================
 AR_NUM = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
@@ -127,6 +125,8 @@ def _sent_tokenize_ar(text: str):
     sents = [s.strip() for s in AR_SPLIT_RE.split(text or "") if len(s.strip()) > 0]
     return [s for s in sents if len(s) >= 20]
 def bm25_rank_sentences(question: str, sentences: list, top_k=12):
+    if not SUMY_AVAILABLE:
+        return sentences[:top_k]
     def tok(s): 
         s = s.lower()
         s = re.sub(r"[^\w\s\u0600-\u06FF]+", " ", s)
@@ -138,22 +138,25 @@ def bm25_rank_sentences(question: str, sentences: list, top_k=12):
     idx = np.argsort(scores)[::-1][:top_k]
     return [sentences[i] for i in idx]
 def fuzz_boost(question: str, sentences: list, top_k=6):
+    if not SUMY_AVAILABLE:
+        return sentences[:top_k]
     scored = [(fuzz.token_set_ratio(question, s), s) for s in sentences]
     scored.sort(reverse=True, key=lambda x: x[0])
     return [s for _, s in scored[:top_k]]
 def textrank_summary(text: str, max_sentences=4):
-    try:
-        from sumy.parsers.plaintext import PlainTextParser
-        parser = PlainTextParser.from_string(text, Tokenizer("english"))
-        summarizer = TextRankSummarizer()
-        if len(text.split()) < 80:
-            return text.strip()
-        summary_sents = summarizer(parser.document, max_sentences)
-        return " ".join(str(s).strip() for s in summary_sents)
-    except:
-        # fallback - simple sentence selection
-        sentences = text.split('.')
-        return '. '.join(sentences[:max_sentences]).strip()
+    if SUMY_AVAILABLE:
+        try:
+            parser = PlainTextParser.from_string(text, Tokenizer("english"))
+            summarizer = TextRankSummarizer()
+            if len(text.split()) < 80:
+                return text.strip()
+            summary_sents = summarizer(parser.document, max_sentences)
+            return " ".join(str(s).strip() for s in summary_sents)
+        except:
+            pass
+    # fallback - simple sentence selection
+    sentences = text.split('.')
+    return '. '.join(sentences[:max_sentences]).strip()
 def summarize_advanced(question: str, page_texts: list, max_final_sents=4):
     candidate_sents = []
     for t in page_texts:
@@ -169,24 +172,214 @@ def summarize_advanced(question: str, page_texts: list, max_final_sents=4):
     return draft
 
 # ===================== 4) مسارات التطبيق =====================
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
 
-@app.post("/", response_class=HTMLResponse)
-async def run(request: Request, question: str = Form(...), mode: str = Form("summary")):
+def render_page(q="", mode="summary", result_panel=""):
+    """إنشاء صفحة HTML"""
+    active_summary = "active" if mode == "summary" else ""
+    active_prices = "active" if mode == "prices" else ""  
+    active_images = "active" if mode == "images" else ""
+    
+    checked_summary = "checked" if mode == "summary" else ""
+    checked_prices = "checked" if mode == "prices" else ""
+    checked_images = "checked" if mode == "images" else ""
+    
+    return f"""<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🤖 تطبيق بسام</title>
+    <style>
+        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+        body {{ 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            direction: rtl;
+        }}
+        .container {{
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }}
+        .header h1 {{ font-size: 2.5rem; margin-bottom: 10px; }}
+        .header p {{ font-size: 1.1rem; opacity: 0.9; }}
+        .content {{ padding: 30px; }}
+        .form-group {{ margin-bottom: 20px; }}
+        label {{ display: block; margin-bottom: 8px; font-weight: bold; color: #333; }}
+        input[type="text"] {{
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }}
+        input[type="text"]:focus {{
+            outline: none;
+            border-color: #4facfe;
+            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
+        }}
+        .mode-selector {{
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }}
+        .mode-btn {{
+            flex: 1;
+            min-width: 120px;
+            padding: 12px 20px;
+            border: 2px solid #e1e5e9;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-weight: bold;
+        }}
+        .mode-btn:hover {{
+            border-color: #4facfe;
+            background: #f8fbff;
+        }}
+        .mode-btn.active {{
+            background: #4facfe;
+            color: white;
+            border-color: #4facfe;
+        }}
+        .submit-btn {{
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 18px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }}
+        .submit-btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }}
+        .result {{
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 10px;
+            border-right: 4px solid #4facfe;
+        }}
+        .card {{
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: 10px 0;
+        }}
+        .footer {{
+            text-align: center;
+            padding: 20px;
+            color: #666;
+            border-top: 1px solid #eee;
+        }}
+        @media (max-width: 600px) {{
+            .mode-selector {{ flex-direction: column; }}
+            .mode-btn {{ min-width: auto; }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 تطبيق بسام</h1>
+            <p>آلة حاسبة، محول وحدات، وبحث ذكي</p>
+        </div>
+        
+        <div class="content">
+            <form method="post" action="/">
+                <div class="form-group">
+                    <label for="question">اسأل بسام:</label>
+                    <input type="text" 
+                           id="question" 
+                           name="question" 
+                           placeholder="مثال: 5 + 3 × 2 أو كم يساوي كيلو بالرطل؟ أو ما هو الذكاء الاصطناعي؟"
+                           value="{q}"
+                           required>
+                </div>
+                
+                <div class="mode-selector">
+                    <label class="mode-btn {active_summary}">
+                        <input type="radio" name="mode" value="summary" {checked_summary} style="display: none;">
+                        📄 ملخص
+                    </label>
+                    <label class="mode-btn {active_prices}">
+                        <input type="radio" name="mode" value="prices" {checked_prices} style="display: none;">
+                        💰 أسعار
+                    </label>
+                    <label class="mode-btn {active_images}">
+                        <input type="radio" name="mode" value="images" {checked_images} style="display: none;">
+                        🖼️ صور
+                    </label>
+                </div>
+                
+                <button type="submit" class="submit-btn">🔍 ابحث</button>
+            </form>
+            
+            {f'<div class="result"><h3>النتيجة:</h3>{result_panel}</div>' if result_panel else ''}
+        </div>
+        
+        <div class="footer">
+            <p>تطبيق بسام v3.0 - آلة حاسبة ومحول وحدات وبحث ذكي</p>
+        </div>
+    </div>
+    
+    <script>
+        // تفعيل أزرار الأوضاع
+        document.querySelectorAll('.mode-btn').forEach(btn => {{
+            btn.addEventListener('click', () => {{
+                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                btn.querySelector('input').checked = true;
+            }});
+        }});
+        
+        // تركيز تلقائي على خانة البحث
+        document.getElementById('question').focus();
+    </script>
+</body>
+</html>"""
+
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    return render_page()
+
+@app.post("/", response_class=HTMLResponse) 
+async def run(question: str = Form(...), mode: str = Form("summary")):
     q = (question or "").strip()
-    answer_text = ""; result_panel = ""
+    
+    if not q:
+        return render_page()
 
     # آلة حاسبة
     calc = try_calc_ar(q)
     if calc:
-        return templates.TemplateResponse("index.html", {"request":request,"q":q,"mode":mode,"answer_text":calc["text"],"result_panel":calc["html"]})
+        return render_page(q, mode, calc["html"])
 
     # تحويل وحدات
     conv = convert_query_ar(q)
     if conv:
-        return templates.TemplateResponse("index.html", {"request":request,"q":q,"mode":mode,"answer_text":conv["text"],"result_panel":conv["html"]})
+        return render_page(q, mode, conv["html"])
 
     # بحث/أسعار/صور
     try:
@@ -201,25 +394,22 @@ async def run(request: Request, question: str = Form(...), mode: str = Form("sum
             final_answer = summarize_advanced(q, page_texts, max_final_sents=4)
             if not final_answer:
                 final_answer = " ".join(snippets[:3]) if snippets else "لم أجد ملخصًا."
-            answer_text = final_answer
-            result_panel = final_answer
+            result_panel = f'<div class="card">{final_answer}</div>'
         elif mode=="prices":
             parts=[]
             for s,a in zip(snippets,links):
                 if any(x in s for x in ["$","USD","SAR","ر.س","AED","د.إ","EGP","ج.م"]):
-                    parts.append(f"{s} — <a target='_blank' href='{a}'>فتح المصدر</a>")
+                    parts.append(f'<div class="card">{s} — <a target="_blank" href="{a}">فتح المصدر</a></div>')
                 if len(parts)>=8: break
-            answer_text=" ".join(parts) if parts else "لم أجد أسعارًا واضحة."
-            result_panel="<br>".join(parts) if parts else "لم أجد أسعارًا."
+            result_panel = "".join(parts) if parts else '<div class="card">لم أجد أسعارًا واضحة.</div>'
         elif mode=="images":
-            result_panel=f"<div class='card'><a target='_blank' href='https://duckduckgo.com/?q={q}&iax=images&ia=images'>افتح نتائج الصور 🔗</a></div>"
-            answer_text="نتائج صور — افتح الرابط."
+            result_panel = f'<div class="card"><a target="_blank" href="https://duckduckgo.com/?q={q}&iax=images&ia=images">افتح نتائج الصور 🔗</a></div>'
         else:
-            answer_text="وضع غير معروف"; result_panel="وضع غير معروف"
+            result_panel = '<div class="card">وضع غير معروف</div>'
     except Exception as e:
-        answer_text=f"خطأ: {e}"; result_panel=answer_text
+        result_panel = f'<div class="card">خطأ: {e}</div>'
 
-    return templates.TemplateResponse("index.html", {"request":request,"q":q,"mode":mode,"answer_text":answer_text,"result_panel":result_panel})
+    return render_page(q, mode, result_panel)
 
 @app.get("/healthz")
 async def healthz():
