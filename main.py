@@ -71,14 +71,130 @@ def try_calc_ar(question: str):
     has_digit = any(ch.isdigit() for ch in question.translate(AR_NUM))
     has_op = any(op in question for op in ["+", "-", "×", "÷", "*", "/", "^", "أس", "√", "جذر", "(", ")", "%"])
     if not (has_digit and has_op): return None
+    
     expr = _normalize_expr(question)
     try:
-        val = _safe_eval(expr)
-        out = f"النتيجة ≈ {val:,.6f}".replace(",", "،")
-        html = f'<div class="card"><strong>النتيجة:</strong> {out}</div>'
-        return {"text": out, "html": html}
+        # حساب النتيجة النهائية
+        final_result = _safe_eval(expr)
+        
+        # تحليل التعبير وعرض الخطوات
+        steps = _analyze_expression(question, expr, final_result)
+        
+        return {"text": f"النتيجة النهائية: {final_result}", "html": steps}
     except Exception:
         return None
+
+def _analyze_expression(original: str, expr: str, final_result: float):
+    """تحليل التعبير الرياضي وعرض الخطوات التفصيلية مثل ChatGPT"""
+    steps_html = f'<div class="card"><h4>📐 المسألة: {original}</h4><hr>'
+    
+    import re
+    step_num = 1
+    calculations = []
+    
+    # البحث عن الدوال الرياضية وحسابها بالتفصيل
+    func_patterns = [
+        (r'sin\(([^)]+)\)', 'sin', lambda x: math.sin(math.radians(x))),
+        (r'cos\(([^)]+)\)', 'cos', lambda x: math.cos(math.radians(x))),
+        (r'tan\(([^)]+)\)', 'tan', lambda x: math.tan(math.radians(x))),
+        (r'sqrt\(([^)]+)\)', 'sqrt', math.sqrt),
+        (r'ln\(([^)]+)\)', 'ln', math.log),
+        (r'log\(([^)]+)\)', 'log', lambda x: math.log(x, 10)),
+    ]
+    
+    current_expr = expr
+    
+    # خطوة 1: حساب الدوال الرياضية
+    steps_html += f'<h5>🔍 الحل:</h5>'
+    
+    for pattern, func_name, func in func_patterns:
+        matches = list(re.finditer(pattern, current_expr))
+        for match in matches:
+            try:
+                value = float(match.group(1))
+                result = func(value)
+                
+                if func_name in ['sin', 'cos', 'tan']:
+                    # إضافة تفاصيل أكثر للدوال المثلثية
+                    if func_name == 'sin' and value == 30:
+                        steps_html += f'<p><strong>{step_num}.</strong> sin(30°) = <span style="color: #2196F3;">0.5</span> ✓</p>'
+                    elif func_name == 'cos' and value == 60:
+                        steps_html += f'<p><strong>{step_num}.</strong> cos(60°) = <span style="color: #2196F3;">0.5</span> ✓</p>'
+                    elif func_name in ['sin', 'cos'] and value == 45:
+                        steps_html += f'<p><strong>{step_num}.</strong> {func_name}(45°) = √2/2 ≈ <span style="color: #2196F3;">{result:.4f}</span> ✓</p>'
+                    else:
+                        steps_html += f'<p><strong>{step_num}.</strong> {func_name}({value}°) = <span style="color: #2196F3;">{result:.4f}</span></p>'
+                else:
+                    steps_html += f'<p><strong>{step_num}.</strong> {func_name}({value}) = <span style="color: #2196F3;">{result:.4f}</span></p>'
+                
+                calculations.append((func_name, value, result))
+                current_expr = current_expr.replace(match.group(0), str(result))
+                step_num += 1
+                
+            except:
+                continue
+    
+    # البحث عن العمليات الخاصة (جذور، أسس)
+    if '√' in original or 'جذر' in original:
+        sqrt_matches = re.finditer(r'√(\d+)', original)
+        for match in sqrt_matches:
+            value = float(match.group(1))
+            result = math.sqrt(value)
+            steps_html += f'<p><strong>{step_num}.</strong> √{value} = <span style="color: #2196F3;">{result:.4f}</span></p>'
+            step_num += 1
+    
+    # خطوة 2: إظهار العمليات التفصيلية
+    if len(calculations) > 0:
+        steps_html += f'<h5>🧮 التطبيق في المعادلة:</h5>'
+        
+        # إعادة كتابة المعادلة مع النتائج
+        display_expr = original
+        for func_name, value, result in calculations:
+            if func_name in ['sin', 'cos', 'tan']:
+                pattern = f'{func_name}({value})'
+                if value == 30 and func_name == 'sin':
+                    replacement = f'<span style="color: #2196F3;">0.5</span>'
+                elif value == 60 and func_name == 'cos':
+                    replacement = f'<span style="color: #2196F3;">0.5</span>'
+                elif value == 45 and func_name in ['sin', 'cos']:
+                    replacement = f'<span style="color: #2196F3;">{result:.4f}</span>'
+                else:
+                    replacement = f'<span style="color: #2196F3;">{result:.4f}</span>'
+                display_expr = display_expr.replace(pattern, replacement)
+        
+        steps_html += f'<p><strong>{step_num}.</strong> {display_expr}</p>'
+        step_num += 1
+        
+        # خطوة 3: الحساب النهائي إذا كان هناك عمليات
+        if '*' in current_expr or '+' in current_expr:
+            # إظهار عمليات الضرب أولاً
+            if '*' in current_expr:
+                multiply_parts = current_expr.split('*')
+                if len(multiply_parts) == 2:
+                    try:
+                        val1, val2 = float(multiply_parts[0].strip()), float(multiply_parts[1].strip())
+                        multiply_result = val1 * val2
+                        steps_html += f'<p><strong>{step_num}.</strong> {val1:.4f} × {val2:.4f} = <span style="color: #4CAF50;">{multiply_result:.4f}</span></p>'
+                        current_expr = current_expr.replace(f'{multiply_parts[0]}*{multiply_parts[1]}', str(multiply_result))
+                        step_num += 1
+                    except:
+                        pass
+            
+            # ثم إظهار عمليات الجمع
+            if '+' in current_expr:
+                parts = current_expr.split('+')
+                if len(parts) > 1:
+                    try:
+                        values = [float(p.strip()) for p in parts]
+                        sum_display = ' + '.join([f'{v:.1f}' for v in values])
+                        steps_html += f'<p><strong>{step_num}.</strong> {sum_display} = <span style="color: #4CAF50;">{final_result:.1f}</span></p>'
+                    except:
+                        pass
+    
+    # النتيجة النهائية
+    steps_html += f'<hr><h4 style="color: #4facfe; text-align: center;">🎯 إذن المجموع: <span style="font-size: 1.3em;">{final_result:.1f}</span></h4></div>'
+    
+    return steps_html
 
 # ===================== 2) محولات وحدات =====================
 WEIGHT_ALIASES = {"كيلو":"kg","كيلوجرام":"kg","كجم":"kg","كغ":"kg","kg":"kg","جرام":"g","غ":"g","g":"g","ملغم":"mg","mg":"mg","رطل":"lb","باوند":"lb","lb":"lb","أوقية":"oz","اونصة":"oz","oz":"oz","طن":"t","t":"t"}
