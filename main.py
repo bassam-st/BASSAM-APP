@@ -1,69 +1,66 @@
-from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse
-import httpx, re, ast, math, os, psycopg2, html
+from fastapi import FastAPI, Request, Form, Query
+from fastapi.responses import HTMLResponse, Response
+import httpx, re, ast, math, os, psycopg2, html, csv, io
 from datetime import datetime
-from bs4 import BeautifulSoup
 
-# --- للتلخيص والترتيب ---
-try:
-    from sumy.nlp.tokenizers import Tokenizer
-    from sumy.parsers.plaintext import PlainTextParser
-    from sumy.summarizers.text_rank import TextRankSummarizer
-    from rank_bm25 import BM25Okapi
-    from rapidfuzz import fuzz
-    import numpy as np
-    SUMY_AVAILABLE = True
-except ImportError:
-    SUMY_AVAILABLE = False
+# بحث جاهز بدون سكربنج HTML
+from duckduckgo_search import DDGS
 
-app = FastAPI(title="Bassam App", version="3.0")
+# ==== إعدادات FastAPI ====
+app = FastAPI(title="Bassam App", version="3.1")
 
-# ===================== قاعدة البيانات =====================
+# ===================== قاعدة البيانات (PostgreSQL) =====================
 def get_db_connection():
-    """الحصول على اتصال بقاعدة البيانات"""
-    return psycopg2.connect(os.environ['DATABASE_URL'])
+    # يتطلب وجود DATABASE_URL في بيئة Replit (يظهر لك في تبويب Database)
+    return psycopg2.connect(os.environ["DATABASE_URL"])
 
-def save_question_history(question: str, answer: str, mode: str = "summary"):
-    """حفظ السؤال والإجابة في قاعدة البيانات"""
+def init_db_pg():
     try:
         with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "INSERT INTO question_history (question, answer, mode) VALUES (%s, %s, %s)",
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS question_history(
+                        id SERIAL PRIMARY KEY,
+                        question TEXT NOT NULL,
+                        answer   TEXT NOT NULL,
+                        mode     TEXT NOT NULL,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+                    );
+                """)
+                conn.commit()
+    except Exception as e:
+        print("DB init error:", e)
+
+@app.on_event("startup")
+def _startup():
+    init_db_pg()
+
+def save_question_history(question: str, answer: str, mode: str = "summary"):
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO question_history (question, answer, mode) VALUES (%s,%s,%s)",
                     (question, answer, mode)
                 )
                 conn.commit()
     except Exception as e:
-        print(f"خطأ في حفظ السؤال: {e}")
+        print("save_history error:", e)
 
-def get_question_history(limit: int = 20):
-    """استخراج الأسئلة السابقة من قاعدة البيانات"""
+def get_question_history(limit: int = 50):
     try:
         with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "SELECT id, question, answer, mode, created_at FROM question_history ORDER BY created_at DESC LIMIT %s",
-                    (limit,)
-                )
-                return cursor.fetchall()
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT id, question, answer, mode, created_at
+                    FROM question_history
+                    ORDER BY id DESC
+                    LIMIT %s
+                """, (limit,))
+                return cur.fetchall()
     except Exception as e:
-        print(f"خطأ في استخراج السجل: {e}")
+        print("get_history error:", e)
         return []
-
-def get_question_by_id(question_id: int):
-    """استخراج سؤال محدد بالمعرف"""
-    try:
-        with get_db_connection() as conn:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    "SELECT question, answer, mode FROM question_history WHERE id = %s",
-                    (question_id,)
-                )
-                result = cursor.fetchone()
-                return result if result else None
-    except Exception as e:
-        print(f"خطأ في استخراج السؤال: {e}")
-        return None
 
 # ===================== أدوات عامة =====================
 AR_NUM = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
@@ -73,20 +70,12 @@ def _to_float(s: str):
     except: return None
 
 # ===================== 1) آلة حاسبة موسعة =====================
-REPL = {
-    "÷": "/", "×": "*", "−": "-", "–": "-", "—": "-",
-    "^": "**", "أس": "**", "اس": "**",
-    "جذر": "sqrt", "الجذر": "sqrt", "√": "sqrt",
-    "%": "/100",
-}
+REPL = {"÷":"/","×":"*","−":"-","–":"-","—":"-","^":"**","أس":"**","اس":"**","جذر":"sqrt","الجذر":"sqrt","√":"sqrt","%":"/100"}
 def _normalize_expr(s: str) -> str:
     s = (s or "").strip()
-    for k, v in REPL.items():
-        s = s.replace(k, v)
-    s = s.replace("على", "/").replace("في", "*")
-    s = s.translate(AR_NUM)
-    s = s.replace("٬", "").replace(",", "")
-    return s
+    for k, v in REPL.items(): s = s.replace(k, v)
+    s = s.replace("على","/").replace("في","*").translate(AR_NUM)
+    return s.replace("٬","").replace(",","")
 
 _ALLOWED_NODES = (
     ast.Expression, ast.BinOp, ast.UnaryOp, ast.Num, ast.Constant,
@@ -105,8 +94,7 @@ SAFE_FUNCS = {
 def _safe_eval(expr: str) -> float:
     tree = ast.parse(expr, mode="eval")
     for node in ast.walk(tree):
-        if not isinstance(node, _ALLOWED_NODES):
-            raise ValueError("رموز غير مدعومة")
+        if not isinstance(node, _ALLOWED_NODES): raise ValueError("رموز غير مدعومة")
         if isinstance(node, ast.Call):
             if not isinstance(node.func, ast.Name) or node.func.id not in SAFE_FUNCS:
                 raise ValueError("دالة غير مسموحة")
@@ -114,143 +102,43 @@ def _safe_eval(expr: str) -> float:
             raise ValueError("اسم غير مسموح")
     return eval(compile(tree, "<calc>", "eval"), {"__builtins__": {}}, SAFE_FUNCS)
 
+def _analyze_expression(original: str, expr: str, final_result: float):
+    safe_original = html.escape(original)
+    steps_html = f'<div class="card"><h4>📐 المسألة: {safe_original}</h4><hr><h5>🔍 الحل:</h5>'
+    import re
+    step = 1
+    current_expr = expr
+
+    for pattern, func_name, func in [
+        (r'sin\(([^)]+)\)','sin',lambda x: math.sin(math.radians(x))),
+        (r'cos\(([^)]+)\)','cos',lambda x: math.cos(math.radians(x))),
+        (r'tan\(([^)]+)\)','tan',lambda x: math.tan(math.radians(x))),
+        (r'sqrt\(([^)]+)\)','sqrt',math.sqrt),
+        (r'ln\(([^)]+)\)','ln',math.log),
+        (r'log\(([^)]+)\)','log',lambda x: math.log(x,10)),
+    ]:
+        for m in list(re.finditer(pattern, current_expr)):
+            try:
+                v = float(m.group(1)); r = func(v)
+                steps_html += f'<p><strong>{step}.</strong> {func_name}({v}) = <span style="color:#2196F3">{r:.4f}</span></p>'
+                current_expr = current_expr.replace(m.group(0), str(r)); step += 1
+            except: pass
+
+    steps_html += f'<hr><h4 style="color:#4facfe;text-align:center;">🎯 النتيجة: <span style="font-size:1.3em;">{final_result:.6g}</span></h4></div>'
+    return steps_html
+
 def try_calc_ar(question: str):
     if not question: return None
-    
-    # التحقق من وجود أرقام أو دوال رياضية
     has_digit = any(ch.isdigit() for ch in question.translate(AR_NUM))
-    has_math_func = any(func in question.lower() for func in ["sin", "cos", "tan", "log", "ln", "sqrt", "جذر"])
-    has_op = any(op in question for op in ["+", "-", "×", "÷", "*", "/", "^", "أس", "√", "جذر", "(", ")", "%"])
-    
-    # السماح بالمعادلات الرياضية حتى لو لم تحتوي على عمليات تقليدية
-    if not (has_digit and (has_op or has_math_func)): return None
-    
+    has_func  = any(f in question.lower() for f in ["sin","cos","tan","log","ln","sqrt","جذر"])
+    has_op    = any(op in question for op in ["+","-","×","÷","*","/","^","أس","√","(",")","%"])
+    if not (has_digit and (has_op or has_func)): return None
     expr = _normalize_expr(question)
     try:
-        # حساب النتيجة النهائية
-        final_result = _safe_eval(expr)
-        
-        # تحليل التعبير وعرض الخطوات
-        steps = _analyze_expression(question, expr, final_result)
-        
-        return {"text": f"النتيجة النهائية: {final_result}", "html": steps}
-    except Exception as e:
-        # في حالة الخطأ، إرجاع معلومات أكثر تفصيلاً للتشخيص
+        res = _safe_eval(expr)
+        return {"text": f"النتيجة النهائية: {res}", "html": _analyze_expression(question, expr, res)}
+    except: 
         return None
-
-def _analyze_expression(original: str, expr: str, final_result: float):
-    """تحليل التعبير الرياضي وعرض الخطوات التفصيلية مثل ChatGPT"""
-    # تنظيف المدخلات من XSS
-    safe_original = html.escape(original)
-    steps_html = f'<div class="card"><h4>📐 المسألة: {safe_original}</h4><hr>'
-    
-    import re
-    step_num = 1
-    calculations = []
-    
-    # البحث عن الدوال الرياضية وحسابها بالتفصيل
-    func_patterns = [
-        (r'sin\(([^)]+)\)', 'sin', lambda x: math.sin(math.radians(x))),
-        (r'cos\(([^)]+)\)', 'cos', lambda x: math.cos(math.radians(x))),
-        (r'tan\(([^)]+)\)', 'tan', lambda x: math.tan(math.radians(x))),
-        (r'sqrt\(([^)]+)\)', 'sqrt', math.sqrt),
-        (r'ln\(([^)]+)\)', 'ln', math.log),
-        (r'log\(([^)]+)\)', 'log', lambda x: math.log(x, 10)),
-    ]
-    
-    current_expr = expr
-    
-    # خطوة 1: حساب الدوال الرياضية
-    steps_html += f'<h5>🔍 الحل:</h5>'
-    
-    for pattern, func_name, func in func_patterns:
-        matches = list(re.finditer(pattern, current_expr))
-        for match in matches:
-            try:
-                value = float(match.group(1))
-                result = func(value)
-                
-                if func_name in ['sin', 'cos', 'tan']:
-                    # إضافة تفاصيل أكثر للدوال المثلثية
-                    if func_name == 'sin' and value == 30:
-                        steps_html += f'<p><strong>{step_num}.</strong> sin(30°) = <span style="color: #2196F3;">0.5</span> ✓</p>'
-                    elif func_name == 'cos' and value == 60:
-                        steps_html += f'<p><strong>{step_num}.</strong> cos(60°) = <span style="color: #2196F3;">0.5</span> ✓</p>'
-                    elif func_name in ['sin', 'cos'] and value == 45:
-                        steps_html += f'<p><strong>{step_num}.</strong> {func_name}(45°) = √2/2 ≈ <span style="color: #2196F3;">{result:.4f}</span> ✓</p>'
-                    else:
-                        steps_html += f'<p><strong>{step_num}.</strong> {func_name}({value}°) = <span style="color: #2196F3;">{result:.4f}</span></p>'
-                else:
-                    steps_html += f'<p><strong>{step_num}.</strong> {func_name}({value}) = <span style="color: #2196F3;">{result:.4f}</span></p>'
-                
-                calculations.append((func_name, value, result))
-                current_expr = current_expr.replace(match.group(0), str(result))
-                step_num += 1
-                
-            except:
-                continue
-    
-    # البحث عن العمليات الخاصة (جذور، أسس)
-    if '√' in original or 'جذر' in original:
-        sqrt_matches = re.finditer(r'√(\d+)', original)
-        for match in sqrt_matches:
-            value = float(match.group(1))
-            result = math.sqrt(value)
-            steps_html += f'<p><strong>{step_num}.</strong> √{value} = <span style="color: #2196F3;">{result:.4f}</span></p>'
-            step_num += 1
-    
-    # خطوة 2: إظهار العمليات التفصيلية
-    if len(calculations) > 0:
-        steps_html += f'<h5>🧮 التطبيق في المعادلة:</h5>'
-        
-        # إعادة كتابة المعادلة مع النتائج
-        display_expr = original
-        for func_name, value, result in calculations:
-            if func_name in ['sin', 'cos', 'tan']:
-                pattern = f'{func_name}({value})'
-                if value == 30 and func_name == 'sin':
-                    replacement = f'<span style="color: #2196F3;">0.5</span>'
-                elif value == 60 and func_name == 'cos':
-                    replacement = f'<span style="color: #2196F3;">0.5</span>'
-                elif value == 45 and func_name in ['sin', 'cos']:
-                    replacement = f'<span style="color: #2196F3;">{result:.4f}</span>'
-                else:
-                    replacement = f'<span style="color: #2196F3;">{result:.4f}</span>'
-                display_expr = display_expr.replace(pattern, replacement)
-        
-        steps_html += f'<p><strong>{step_num}.</strong> {display_expr}</p>'
-        step_num += 1
-        
-        # خطوة 3: الحساب النهائي إذا كان هناك عمليات
-        if '*' in current_expr or '+' in current_expr:
-            # إظهار عمليات الضرب أولاً
-            if '*' in current_expr:
-                multiply_parts = current_expr.split('*')
-                if len(multiply_parts) == 2:
-                    try:
-                        val1, val2 = float(multiply_parts[0].strip()), float(multiply_parts[1].strip())
-                        multiply_result = val1 * val2
-                        steps_html += f'<p><strong>{step_num}.</strong> {val1:.4f} × {val2:.4f} = <span style="color: #4CAF50;">{multiply_result:.4f}</span></p>'
-                        current_expr = current_expr.replace(f'{multiply_parts[0]}*{multiply_parts[1]}', str(multiply_result))
-                        step_num += 1
-                    except:
-                        pass
-            
-            # ثم إظهار عمليات الجمع
-            if '+' in current_expr:
-                parts = current_expr.split('+')
-                if len(parts) > 1:
-                    try:
-                        values = [float(p.strip()) for p in parts]
-                        sum_display = ' + '.join([f'{v:.1f}' for v in values])
-                        steps_html += f'<p><strong>{step_num}.</strong> {sum_display} = <span style="color: #4CAF50;">{final_result:.1f}</span></p>'
-                    except:
-                        pass
-    
-    # النتيجة النهائية
-    steps_html += f'<hr><h4 style="color: #4facfe; text-align: center;">🎯 إذن المجموع: <span style="font-size: 1.3em;">{final_result:.1f}</span></h4></div>'
-    
-    return steps_html
 
 # ===================== 2) محولات وحدات =====================
 WEIGHT_ALIASES = {"كيلو":"kg","كيلوجرام":"kg","كجم":"kg","كغ":"kg","kg":"kg","جرام":"g","غ":"g","g":"g","ملغم":"mg","mg":"mg","رطل":"lb","باوند":"lb","lb":"lb","أوقية":"oz","اونصة":"oz","oz":"oz","طن":"t","t":"t"}
@@ -271,8 +159,7 @@ for k,v in VOLUME_ALIASES.items(): TYPE_OF_UNIT[v]="Vs"
 for k,v in AREA_ALIASES.items(): TYPE_OF_UNIT[v]="A"
 for k,v in VOLUME3_ALIASES.items(): TYPE_OF_UNIT[v]="V3"
 CONV_RE = re.compile(r'(?:كم\s*يساوي\s*)?([\d\.,]+)\s*(\S+)\s*(?:إلى|ل|=|يساوي|بال|بـ)\s*(\S+)', re.IGNORECASE)
-def _norm_unit(u: str):
-    return ALL_ALIASES.get((u or "").strip().lower().translate(AR_NUM), "")
+def _norm_unit(u: str): return ALL_ALIASES.get((u or "").strip().lower().translate(AR_NUM), "")
 def convert_query_ar(query: str):
     m = CONV_RE.search((query or "").strip())
     if not m: return None
@@ -288,542 +175,200 @@ def convert_query_ar(query: str):
     elif t_from=="V3": res=(value*V3_TO_M3[u_from])/V3_TO_M3[u_to]
     else: return None
     text=f"{value:g} {u_from_s} ≈ {res:,.6f} {u_to_s}"
-    html=f'<div class="card"><strong>النتيجة:</strong> {text}</div>'
-    return {"text":text,"html":html}
+    html_out=f'<div class="card"><strong>النتيجة:</strong> {html.escape(text)}</div>'
+    return {"text":text,"html":html_out}
 
-# ===================== 3) تلخيص متقدم =====================
+# ===================== 3) التلخيص =====================
+try:
+    from sumy.nlp.tokenizers import Tokenizer
+    from sumy.parsers.plaintext import PlainTextParser
+    from sumy.summarizers.text_rank import TextRankSummarizer
+    from rank_bm25 import BM25Okapi
+    from rapidfuzz import fuzz
+    import numpy as np
+    SUMY_AVAILABLE = True
+except Exception:
+    SUMY_AVAILABLE = False
+
 AR_SPLIT_RE = re.compile(r'(?<=[\.\!\?\؟])\s+|\n+')
 def _sent_tokenize_ar(text: str):
-    sents = [s.strip() for s in AR_SPLIT_RE.split(text or "") if len(s.strip()) > 0]
-    return [s for s in sents if len(s) >= 20]
-def bm25_rank_sentences(question: str, sentences: list, top_k=12):
-    if not SUMY_AVAILABLE:
-        return sentences[:top_k]
-    def tok(s): 
-        s = s.lower()
-        s = re.sub(r"[^\w\s\u0600-\u06FF]+", " ", s)
-        return s.split()
-    corpus_tokens = [tok(s) for s in sentences]
-    bm25 = BM25Okapi(corpus_tokens) if corpus_tokens else None
-    if not bm25: return sentences[:top_k]
-    scores = bm25.get_scores(tok(question))
-    idx = np.argsort(scores)[::-1][:top_k]
-    return [sentences[i] for i in idx]
-def fuzz_boost(question: str, sentences: list, top_k=6):
-    if not SUMY_AVAILABLE:
-        return sentences[:top_k]
-    scored = [(fuzz.token_set_ratio(question, s), s) for s in sentences]
-    scored.sort(reverse=True, key=lambda x: x[0])
-    return [s for _, s in scored[:top_k]]
-def textrank_summary(text: str, max_sentences=4):
-    if SUMY_AVAILABLE:
-        try:
-            parser = PlainTextParser.from_string(text, Tokenizer("english"))
-            summarizer = TextRankSummarizer()
-            if len(text.split()) < 80:
-                return text.strip()
-            summary_sents = summarizer(parser.document, max_sentences)
-            return " ".join(str(s).strip() for s in summary_sents)
-        except:
-            pass
-    # fallback - simple sentence selection
-    sentences = text.split('.')
-    return '. '.join(sentences[:max_sentences]).strip()
+    sents = [s.strip() for s in AR_SPLIT_RE.split(text or "") if len(s.strip())>0]
+    return [s for s in sents if len(s)>=20]
+
 def summarize_advanced(question: str, page_texts: list, max_final_sents=4):
+    # تبسيط: لو SUMY غير مثبتة، خذ أفضل الجُمل المتاحة فقط
     candidate_sents = []
     for t in page_texts:
-        sents = _sent_tokenize_ar(t)[:200]
-        candidate_sents.extend(sents)
+        candidate_sents.extend(_sent_tokenize_ar(t)[:200])
     if not candidate_sents: return ""
-    bm25_top = bm25_rank_sentences(question, candidate_sents, top_k=30)
-    boosted = fuzz_boost(question, bm25_top, top_k=12)
-    merged = " ".join(boosted)
-    draft = textrank_summary(merged, max_sentences=max_final_sents)
-    if len(draft.split()) < 30:
-        return " ".join(boosted[:max_final_sents])
-    return draft
+    if not SUMY_AVAILABLE:
+        return " ".join(candidate_sents[:max_final_sents])
 
-# ===================== 4) مسارات التطبيق =====================
+    def tok(s):
+        s = s.lower()
+        s = re.sub(r"[^\w\s\u0600-\u06FF]+"," ", s)
+        return s.split()
+    import numpy as np
+    from rank_bm25 import BM25Okapi
+    bm25 = BM25Okapi([tok(s) for s in candidate_sents])
+    idx = np.argsort(bm25.get_scores(tok(question)))[::-1][:12]
+    chosen = [candidate_sents[i] for i in idx]
+    from sumy.parsers.plaintext import PlainTextParser
+    from sumy.nlp.tokenizers import Tokenizer
+    from sumy.summarizers.text_rank import TextRankSummarizer
+    parser = PlainTextParser.from_string(" ".join(chosen), Tokenizer("english"))
+    summ = TextRankSummarizer()
+    out = " ".join(str(s) for s in summ(parser.document, max_final_sents)).strip()
+    return out or " ".join(chosen[:max_final_sents])
 
+# ===================== 4) HTML (واجهة) =====================
 def render_page(q="", mode="summary", result_panel=""):
-    """إنشاء صفحة HTML"""
-    active_summary = "active" if mode == "summary" else ""
-    active_prices = "active" if mode == "prices" else ""  
-    active_images = "active" if mode == "images" else ""
-    
-    checked_summary = "checked" if mode == "summary" else ""
-    checked_prices = "checked" if mode == "prices" else ""
-    checked_images = "checked" if mode == "images" else ""
-    
+    active = lambda m: "active" if mode==m else ""
+    checked= lambda m: "checked" if mode==m else ""
     return f"""<!DOCTYPE html>
-<html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🤖 تطبيق بسام</title>
-    <style>
-        * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-        body {{ 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-            direction: rtl;
-        }}
-        .container {{
-            max-width: 800px;
-            margin: 0 auto;
-            background: white;
-            border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-            overflow: hidden;
-        }}
-        .header {{
-            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-            color: white;
-            padding: 30px;
-            text-align: center;
-            position: relative;
-        }}
-        .header h1 {{ font-size: 2.5rem; margin-bottom: 10px; }}
-        .header p {{ font-size: 1.1rem; opacity: 0.9; }}
-        .history-btn {{
-            position: absolute;
-            top: 20px;
-            left: 20px;
-            padding: 10px 20px;
-            background: rgba(255,255,255,0.2);
-            color: white;
-            text-decoration: none;
-            border-radius: 25px;
-            font-size: 0.9rem;
-            font-weight: bold;
-            transition: all 0.3s ease;
-            border: 2px solid rgba(255,255,255,0.3);
-        }}
-        .history-btn:hover {{
-            background: rgba(255,255,255,0.3);
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
-        }}
-        .content {{ padding: 30px; }}
-        .form-group {{ margin-bottom: 20px; }}
-        label {{ display: block; margin-bottom: 8px; font-weight: bold; color: #333; }}
-        input[type="text"] {{
-            width: 100%;
-            padding: 15px;
-            border: 2px solid #e1e5e9;
-            border-radius: 10px;
-            font-size: 16px;
-            transition: all 0.3s ease;
-        }}
-        input[type="text"]:focus {{
-            outline: none;
-            border-color: #4facfe;
-            box-shadow: 0 0 0 3px rgba(79, 172, 254, 0.1);
-        }}
-        .mode-selector {{
-            display: flex;
-            gap: 10px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-        }}
-        .mode-btn {{
-            flex: 1;
-            min-width: 120px;
-            padding: 12px 20px;
-            border: 2px solid #e1e5e9;
-            background: white;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            text-align: center;
-            font-weight: bold;
-        }}
-        .mode-btn:hover {{
-            border-color: #4facfe;
-            background: #f8fbff;
-        }}
-        .mode-btn.active {{
-            background: #4facfe;
-            color: white;
-            border-color: #4facfe;
-        }}
-        .submit-btn {{
-            width: 100%;
-            padding: 15px;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            border: none;
-            border-radius: 10px;
-            font-size: 18px;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }}
-        .submit-btn:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }}
-        .result {{
-            margin-top: 30px;
-            padding: 20px;
-            background: #f8f9fa;
-            border-radius: 10px;
-            border-right: 4px solid #4facfe;
-        }}
-        .card {{
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            margin: 10px 0;
-        }}
-        .footer {{
-            text-align: center;
-            padding: 20px;
-            color: #666;
-            border-top: 1px solid #eee;
-        }}
-        @media (max-width: 600px) {{
-            .mode-selector {{ flex-direction: column; }}
-            .mode-btn {{ min-width: auto; }}
-        }}
-    </style>
-</head>
+<html lang="ar" dir="rtl"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🤖 تطبيق بسام</title>
+<style>
+*{{box-sizing:border-box;margin:0;padding:0}}
+body{{font-family:'Segoe UI',Tahoma,Arial;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);min-height:100vh;padding:20px;direction:rtl}}
+.container{{max-width:800px;margin:0 auto;background:#fff;border-radius:15px;box-shadow:0 10px 30px rgba(0,0,0,.1);overflow:hidden}}
+.header{{background:linear-gradient(135deg,#4facfe 0%,#00f2fe 100%);color:#fff;padding:30px;text-align:center;position:relative}}
+.history-btn{{position:absolute;top:20px;left:20px;padding:10px 20px;background:rgba(255,255,255,.2);color:#fff;text-decoration:none;border-radius:25px;border:2px solid rgba(255,255,255,.3)}}
+.content{{padding:30px}}
+input[type=text]{{width:100%;padding:15px;border:2px solid #e1e5e9;border-radius:10px;font-size:16px}}
+.mode-selector{{display:flex;gap:10px;margin:20px 0;flex-wrap:wrap}}
+.mode-btn{{flex:1;min-width:120px;padding:12px 20px;border:2px solid #e1e5e9;background:#fff;border-radius:8px;cursor:pointer;text-align:center;font-weight:bold}}
+.mode-btn.active{{background:#4facfe;color:#fff;border-color:#4facfe}}
+.submit-btn{{width:100%;padding:15px;background:linear-gradient(135deg,#667eea 0%,#764ba2 100%);color:#fff;border:none;border-radius:10px;font-size:18px;font-weight:bold;cursor:pointer}}
+.result{{margin-top:30px;padding:20px;background:#f8f9fa;border-radius:10px;border-right:4px solid #4facfe}}
+.card{{background:#fff;padding:20px;border-radius:10px;box-shadow:0 2px 10px rgba(0,0,0,.1);margin:10px 0}}
+.footer{{text-align:center;padding:20px;color:#666;border-top:1px solid #eee}}
+</style></head>
 <body>
-    <div class="container">
-        <div class="header">
-            <a href="/history" class="history-btn">📚 السجل</a>
-            <h1>🤖 تطبيق بسام</h1>
-            <p>آلة حاسبة، محول وحدات، وبحث ذكي</p>
-        </div>
-        
-        <div class="content">
-            <form method="post" action="/">
-                <div class="form-group">
-                    <label for="question">اسأل بسام:</label>
-                    <input type="text" 
-                           id="question" 
-                           name="question" 
-                           placeholder="مثال: 5 + 3 × 2 أو كم يساوي كيلو بالرطل؟ أو ما هو الذكاء الاصطناعي؟"
-                           value="{html.escape(q)}"
-                           required>
-                </div>
-                
-                <div class="mode-selector">
-                    <label class="mode-btn {active_summary}">
-                        <input type="radio" name="mode" value="summary" {checked_summary} style="display: none;">
-                        📄 ملخص
-                    </label>
-                    <label class="mode-btn {active_prices}">
-                        <input type="radio" name="mode" value="prices" {checked_prices} style="display: none;">
-                        💰 أسعار
-                    </label>
-                    <label class="mode-btn {active_images}">
-                        <input type="radio" name="mode" value="images" {checked_images} style="display: none;">
-                        🖼️ صور
-                    </label>
-                </div>
-                
-                <button type="submit" class="submit-btn">🔍 ابحث</button>
-            </form>
-            
-            {f'<div class="result"><h3>النتيجة:</h3>{result_panel}</div>' if result_panel else ''}
-        </div>
-        
-        <div class="footer">
-            <p>تطبيق بسام v3.0 - آلة حاسبة ومحول وحدات وبحث ذكي</p>
-        </div>
-    </div>
-    
-    <script>
-        // تفعيل أزرار الأوضاع
-        document.querySelectorAll('.mode-btn').forEach(btn => {{
-            btn.addEventListener('click', () => {{
-                document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-                btn.classList.add('active');
-                btn.querySelector('input').checked = true;
-            }});
-        }});
-        
-        // تركيز تلقائي على خانة البحث
-        document.getElementById('question').focus();
-    </script>
-</body>
-</html>"""
+<div class="container">
+  <div class="header">
+    <a href="/history" class="history-btn">📚 السجل</a>
+    <h1>🤖 تطبيق بسام</h1><p>آلة حاسبة، محول وحدات، وبحث ذكي</p>
+  </div>
+  <div class="content">
+    <form method="post" action="/">
+      <label for="question">اسأل بسام:</label>
+      <input type="text" id="question" name="question" placeholder="مثال: 5 + 3 × 2 / تحويل 70 كيلو إلى رطل / أين تقع الصين؟" value="{html.escape(q)}" required>
+      <div class="mode-selector">
+        <label class="mode-btn {active('summary')}"><input type="radio" name="mode" value="summary" {checked('summary')} style="display:none">📄 ملخص</label>
+        <label class="mode-btn {active('prices')}"><input type="radio" name="mode" value="prices"  {checked('prices')}  style="display:none">💰 أسعار</label>
+        <label class="mode-btn {active('images')}"><input type="radio" name="mode" value="images"  {checked('images')}  style="display:none">🖼️ صور</label>
+      </div>
+      <button type="submit" class="submit-btn">🔍 ابحث</button>
+    </form>
+    {f'<div class="result"><h3>النتيجة:</h3>{result_panel}</div>' if result_panel else ''}
+  </div>
+  <div class="footer"><p>تطبيق بسام v3.1</p></div>
+</div>
+<script>
+document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');btn.querySelector('input').checked=true;});});
+document.getElementById('question').focus();
+</script>
+</body></html>"""
 
+# ===================== المسارات =====================
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    # قبول معاملات الاستعلام لإعادة استخدام الأسئلة السابقة
     q = request.query_params.get("q", "")
     mode = request.query_params.get("mode", "summary")
     return render_page(q, mode)
 
-@app.post("/", response_class=HTMLResponse) 
+@app.post("/", response_class=HTMLResponse)
 async def run(question: str = Form(...), mode: str = Form("summary")):
     q = (question or "").strip()
-    
-    if not q:
-        return render_page()
+    if not q: return render_page()
 
-    result_panel = ""
-    
-    # آلة حاسبة
+    # 1) آلة حاسبة
     calc = try_calc_ar(q)
     if calc:
-        result_panel = calc["html"]
-        # حفظ في قاعدة البيانات
         save_question_history(q, calc["text"], "calculator")
-        return render_page(q, mode, result_panel)
+        return render_page(q, mode, calc["html"])
 
-    # تحويل وحدات
+    # 2) تحويل وحدات
     conv = convert_query_ar(q)
     if conv:
-        result_panel = conv["html"]
-        # حفظ في قاعدة البيانات
         save_question_history(q, conv["text"], "converter")
-        return render_page(q, mode, result_panel)
+        return render_page(q, mode, conv["html"])
 
-    # بحث/أسعار/صور
+    # 3) بحث/أسعار/صور (DuckDuckGo API)
     try:
-        async with httpx.AsyncClient(timeout=20) as client:
-            r = await client.get("https://duckduckgo.com/html/", params={"q": q})
-            soup = BeautifulSoup(r.text,"html.parser")
-            snippets=[re.sub(r"\s+"," ",el.get_text()) for el in soup.select(".result__snippet")]
-            links=[a.get("href") for a in soup.select(".result__a")]
+        results = []
+        async with DDGS() as ddgs:
+            for r in ddgs.text(q, region="xa-ar", safesearch="moderate", max_results=12):
+                results.append(r)
 
-        if mode=="summary":
-            page_texts = snippets[:3]
-            final_answer = summarize_advanced(q, page_texts, max_final_sents=4)
-            if not final_answer:
-                final_answer = " ".join(snippets[:3]) if snippets else "لم أجد ملخصًا."
-            result_panel = f'<div class="card">{final_answer}</div>'
-            # حفظ في قاعدة البيانات
+        snippets = [re.sub(r"\s+", " ", (r.get("body") or "")) for r in results]
+        links    = [r.get("href") for r in results]
+
+        if mode == "summary":
+            texts = [s for s in snippets if s][:5]
+            final_answer = summarize_advanced(q, texts, max_final_sents=4) or \
+                           (" ".join(texts[:3]) if texts else "لم أجد ملخصًا.")
+            panel = f'<div class="card">{html.escape(final_answer)}</div>'
             save_question_history(q, final_answer, "summary")
-        elif mode=="prices":
-            parts=[]
-            for s,a in zip(snippets,links):
-                if any(x in s for x in ["$","USD","SAR","ر.س","AED","د.إ","EGP","ج.م"]):
-                    parts.append(f'<div class="card">{s} — <a target="_blank" href="{a}">فتح المصدر</a></div>')
-                if len(parts)>=8: break
-            result_panel = "".join(parts) if parts else '<div class="card">لم أجد أسعارًا واضحة.</div>'
-            # حفظ في قاعدة البيانات
-            save_question_history(q, f"وجدت {len(parts)} نتيجة للأسعار", "prices")
-        elif mode=="images":
-            result_panel = f'<div class="card"><a target="_blank" href="https://duckduckgo.com/?q={q}&iax=images&ia=images">افتح نتائج الصور 🔗</a></div>'
-            # حفظ في قاعدة البيانات
-            save_question_history(q, "بحث عن الصور", "images")
-        else:
-            result_panel = '<div class="card">وضع غير معروف</div>'
-    except Exception as e:
-        result_panel = f'<div class="card">خطأ: {e}</div>'
-        # حفظ في قاعدة البيانات (حتى الأخطاء للمراجعة)
-        save_question_history(q, f"خطأ: {e}", mode)
+            return render_page(q, mode, panel)
 
-    return render_page(q, mode, result_panel)
+        elif mode == "prices":
+            parts = []
+            for s, a in zip(snippets, links):
+                if any(x in s for x in ["$", "USD", "SAR", "ر.س", "AED", "د.إ", "EGP", "ج.م", "ريال", "درهم", "جنيه"]):
+                    link = f'<a target="_blank" href="{html.escape(a or "#")}">فتح المصدر</a>'
+                    parts.append(f'<div class="card">{html.escape(s)} — {link}</div>')
+                if len(parts) >= 8: break
+            panel = "".join(parts) if parts else '<div class="card">لم أجد أسعارًا واضحة.</div>'
+            save_question_history(q, f"وجدت {len(parts)} نتيجة للأسعار", "prices")
+            return render_page(q, mode, panel)
+
+        elif mode == "images":
+            panel = f'<div class="card"><a target="_blank" href="https://duckduckgo.com/?q={html.escape(q)}&iax=images&ia=images">افتح نتائج الصور 🔗</a></div>'
+            save_question_history(q, "بحث عن الصور", "images")
+            return render_page(q, mode, panel)
+
+        else:
+            return render_page(q, mode, '<div class="card">وضع غير معروف</div>')
+
+    except Exception as e:
+        panel = f'<div class="card">خطأ أثناء البحث: {html.escape(str(e))}</div>'
+        save_question_history(q, f"خطأ: {e}", mode)
+        return render_page(q, mode, panel)
 
 @app.get("/history", response_class=HTMLResponse)
 async def history():
-    """عرض صفحة السجل التاريخي للأسئلة"""
-    questions = get_question_history(50)  # آخر 50 سؤال
-    
-    history_html = f"""
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>📚 سجل الأسئلة - بسام</title>
-        <style>
-            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-            body {{ 
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                padding: 20px;
-                direction: rtl;
-            }}
-            .container {{
-                max-width: 900px;
-                margin: 0 auto;
-                background: white;
-                border-radius: 15px;
-                box-shadow: 0 10px 30px rgba(0,0,0,0.1);
-                overflow: hidden;
-            }}
-            .header {{
-                background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-                color: white;
-                padding: 30px;
-                text-align: center;
-            }}
-            .header h1 {{ font-size: 2.5rem; margin-bottom: 10px; }}
-            .back-btn {{
-                display: inline-block;
-                margin-top: 15px;
-                padding: 10px 25px;
-                background: rgba(255,255,255,0.2);
-                color: white;
-                text-decoration: none;
-                border-radius: 25px;
-                transition: all 0.3s ease;
-            }}
-            .back-btn:hover {{
-                background: rgba(255,255,255,0.3);
-                transform: translateY(-2px);
-            }}
-            .content {{ padding: 30px; }}
-            .question-item {{
-                background: #f8f9fa;
-                margin: 15px 0;
-                padding: 20px;
-                border-radius: 10px;
-                border-right: 4px solid #4facfe;
-                transition: all 0.3s ease;
-            }}
-            .question-item:hover {{
-                transform: translateY(-2px);
-                box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            }}
-            .question-text {{
-                font-weight: bold;
-                color: #333;
-                margin-bottom: 10px;
-                font-size: 1.1rem;
-                cursor: pointer;
-            }}
-            .question-text:hover {{ color: #4facfe; }}
-            .question-meta {{
-                font-size: 0.9rem;
-                color: #666;
-                margin-bottom: 10px;
-            }}
-            .question-answer {{
-                color: #555;
-                line-height: 1.6;
-                display: none;
-                margin-top: 10px;
-                padding-top: 10px;
-                border-top: 1px solid #eee;
-            }}
-            .use-btn {{
-                background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-                color: white;
-                border: none;
-                padding: 8px 15px;
-                border-radius: 5px;
-                cursor: pointer;
-                font-size: 0.9rem;
-                margin-top: 10px;
-                transition: all 0.3s ease;
-            }}
-            .use-btn:hover {{
-                transform: translateY(-1px);
-                box-shadow: 0 3px 10px rgba(79, 172, 254, 0.3);
-            }}
-            .mode-badge {{
-                display: inline-block;
-                padding: 4px 12px;
-                border-radius: 15px;
-                font-size: 0.8rem;
-                font-weight: bold;
-                margin-left: 10px;
-            }}
-            .mode-calculator {{ background: #e8f5e8; color: #2e7d32; }}
-            .mode-converter {{ background: #fff3e0; color: #f57c00; }}
-            .mode-summary {{ background: #e3f2fd; color: #1976d2; }}
-            .mode-prices {{ background: #fce4ec; color: #c2185b; }}
-            .mode-images {{ background: #f3e5f5; color: #7b1fa2; }}
-            .empty-state {{
-                text-align: center;
-                padding: 50px;
-                color: #666;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>📚 سجل الأسئلة</h1>
-                <p>تصفح أسئلتك السابقة والعودة إليها</p>
-                <a href="/" class="back-btn">← العودة للصفحة الرئيسية</a>
-            </div>
-            
-            <div class="content">
-    """
-    
-    if not questions:
-        history_html += '''
-                <div class="empty-state">
-                    <h3>📝 لم تسأل أي سؤال بعد</h3>
-                    <p>ابدأ بطرح سؤالك الأول!</p>
-                </div>
-        '''
-    else:
-        for q_id, question, answer, mode, created_at in questions:
-            # تحديد لون الوضع
-            mode_class = f"mode-{mode}" if mode in ["calculator", "converter", "summary", "prices", "images"] else "mode-summary"
-            mode_icon = {
-                "calculator": "🧮",
-                "converter": "🔄", 
-                "summary": "📄",
-                "prices": "💰",
-                "images": "🖼️"
-            }.get(mode, "❓")
-            
-            # تنسيق التاريخ
-            try:
-                from datetime import datetime
-                if isinstance(created_at, str):
-                    date_obj = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                else:
-                    date_obj = created_at
-                formatted_date = date_obj.strftime("%Y/%m/%d %H:%M")
-            except:
-                formatted_date = "غير محدد"
-            
-            # قطع الإجابة إذا كانت طويلة
-            short_answer = answer[:200] + "..." if len(answer) > 200 else answer
-            
-            # تنظيف البيانات من XSS قبل العرض
-            safe_question = html.escape(question)
-            safe_answer = html.escape(answer)
-            safe_mode = html.escape(mode)
-            
-            history_html += f'''
-                <div class="question-item">
-                    <div class="question-text" onclick="toggleAnswer({q_id})">
-                        {safe_question}
-                    </div>
-                    <div class="question-meta">
-                        <span class="mode-badge {mode_class}">{mode_icon} {safe_mode}</span>
-                        📅 {formatted_date}
-                    </div>
-                    <div class="question-answer" id="answer-{q_id}">
-                        {safe_answer}
-                    </div>
-                    <a href="/?q={html.escape(question)}&mode={html.escape(mode)}" class="use-btn" style="text-decoration: none; display: inline-block;">
-                        🔄 استخدم هذا السؤال مرة أخرى
-                    </a>
-                </div>
-            '''
-    
-    history_html += """
-            </div>
+    rows = get_question_history(50)
+    html_rows = ""
+    for (qid, question, answer, mode, created_at) in rows:
+        dt = (created_at.strftime("%Y/%m/%d %H:%M") if hasattr(created_at, "strftime")
+              else str(created_at))
+        html_rows += f"""
+        <div class="card">
+          <div><strong>📝 سؤال:</strong> {html.escape(question)}</div>
+          <div style="margin-top:6px"><strong>💡 إجابة:</strong> {html.escape(answer[:300])}{'...' if len(answer)>300 else ''}</div>
+          <div style="margin-top:6px; color:#666">وضع: {html.escape(mode)} — ⏱️ {dt}</div>
+          <a href="/?q={html.escape(question)}&mode={html.escape(mode)}" style="display:inline-block;margin-top:8px">🔄 استخدم السؤال</a>
         </div>
-        
-        <script>
-            function toggleAnswer(id) {
-                const answer = document.getElementById('answer-' + id);
-                answer.style.display = answer.style.display === 'none' || answer.style.display === '' ? 'block' : 'none';
-            }
-        </script>
-    </body>
-    </html>
-    """
-    
-    return history_html
+        """
+    page = f"""<!DOCTYPE html><html lang="ar" dir="rtl"><head>
+    <meta charset="utf-8"><title>سجل الأسئلة</title>
+    <style>body{{font-family:Tahoma,Arial;background:#f5f7fb;padding:20px}}.card{{background:#fff;padding:14px;border-radius:10px;margin:10px 0;box-shadow:0 2px 10px rgba(0,0,0,.05)}}</style>
+    </head><body><h2>📚 سجل الأسئلة</h2>{html_rows or '<p>لا يوجد سجل بعد.</p>'}</body></html>"""
+    return HTMLResponse(page)
+
+@app.get("/history/export")
+def export_history(limit: int = 1000):
+    rows = get_question_history(limit)
+    out = io.StringIO()
+    w = csv.writer(out)
+    w.writerow(["id","question","answer","mode","created_at"])
+    for r in rows[::-1]: w.writerow(r)
+    return Response(out.getvalue().encode("utf-8-sig"),
+                    media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":"attachment; filename=bassam_history.csv"})
 
 @app.get("/healthz")
 async def healthz():
