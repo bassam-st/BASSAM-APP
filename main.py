@@ -490,13 +490,42 @@ def detect_educational_level(q: str) -> str:
     if any(keyword in text for keyword in middle_school_keywords):
         return 'middle_school'
     
-    # الرياضيات الابتدائية (افتراضي)
-    return 'elementary'
+    # فحص إذا كان السؤال يحتوي على عمليات حسابية واضحة
+    if any(op in text for op in ['+', '-', '*', '/', '×', '÷', '=', 'جمع', 'طرح', 'ضرب', 'قسمة', 'حساب']):
+        return 'elementary'
+    
+    # فحص للأرقام الحقيقية (ليس رموز الترميز المُشوّه)
+    # إذا كان النص يحتوي على أرقام عربية أو إنجليزية منفصلة
+    arabic_digits = '٠١٢٣٤٥٦٧٨٩'
+    real_digits = '0123456789'
+    
+    # البحث عن أرقام حقيقية (ليس جزء من ترميز مُشوّه)
+    has_real_numbers = False
+    for i, char in enumerate(text):
+        if char in real_digits or char in arabic_digits:
+            # تأكد أن الرقم ليس جزء من ترميز مُشوّه
+            if i == 0 or i == len(text)-1:  # أول أو آخر حرف
+                has_real_numbers = True
+                break
+            # إذا كان الرقم محاط بمسافات أو أحرف عادية
+            elif (text[i-1] in ' ،؟.' or text[i+1] in ' ،؟.'):
+                has_real_numbers = True
+                break
+    
+    if has_real_numbers:
+        return 'elementary'
+    
+    # ليس سؤال رياضي
+    return 'not_math'
 
 def solve_comprehensive_math(q: str):
     """حل شامل للرياضيات - جميع المراحل التعليمية"""
     try:
         level = detect_educational_level(q)
+        
+        # إذا لم يكن السؤال رياضي، لا تعطي جواب رياضي
+        if level == 'not_math':
+            return None
         
         # الإحصاء والاحتمالات
         if level == 'statistics':
@@ -514,9 +543,13 @@ def solve_comprehensive_math(q: str):
         elif level == 'middle_school':
             return solve_middle_school_math(q)
         
-        # رياضيات الابتدائية
-        else:
+        # رياضيات الابتدائية (فقط إذا كان فيه أرقام أو عمليات حسابية)
+        elif level == 'elementary':
             return solve_elementary_math(q)
+        
+        # إذا لم يتم تحديد نوع، لا تعطي جواب رياضي
+        else:
+            return None
             
     except Exception as e:
         return None
@@ -847,8 +880,6 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
         return render_page(q, mode, calc["html"])
 
     # 1.5) نظام رياضيات شامل (جميع المراحل التعليمية)
-    # تحديد المستوى التعليمي تلقائياً
-    
     comprehensive_math = solve_comprehensive_math(q)
     if comprehensive_math:
         save_question_history(q, comprehensive_math["text"], "comprehensive_math")
