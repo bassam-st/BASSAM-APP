@@ -17,8 +17,8 @@ try:
 except Exception as e:
     # حتى لو كان هناك خطأ في ملف gemini.py، لا نوقف التطبيق
     GEMINI_AVAILABLE = False
-    def answer_with_ai(q): return None
-    def smart_math_help(q): return None
+    def answer_with_ai(question): return None
+    def smart_math_help(question): return None
     def is_gemini_available(): return False
 
 # ==== إعدادات FastAPI ====
@@ -300,6 +300,7 @@ def solve_advanced_math(q: str):
         expr = sympify(expr_txt, dict(sin=sin, cos=cos, tan=tan, sqrt=sqrt))
         
         result_html = f'<div class="card"><h4>📐 المسألة: {html.escape(q)}</h4><hr>'
+        res = None  # تهيئة المتغير
         
         if task == 'diff':
             res = diff(expr, x)
@@ -326,8 +327,10 @@ def solve_advanced_math(q: str):
             if solutions:
                 for i, sol in enumerate(solutions, 1):
                     result_html += f'<p><strong>الحل {i}:</strong> x = {sol}</p>'
+                res = f"الحلول: {solutions}"
             else:
                 result_html += f'<p>لا يوجد حل حقيقي للمعادلة</p>'
+                res = "لا يوجد حل"
                 
         elif task == 'factor':
             res = factor(expr)
@@ -377,6 +380,369 @@ def solve_advanced_math(q: str):
         </div>'''
         return {"text": f"خطأ: {str(e)}", "html": error_html}
 
+# ===================== 3.6) الإحصاء والاحتمالات =====================
+
+def solve_statistics_math(q: str):
+    """حل مسائل الإحصاء والاحتمالات"""
+    try:
+        result_html = f'<div class="card"><h4>📊 الإحصاء والاحتمالات: {html.escape(q)}</h4><hr>'
+        
+        if 'متوسط' in q.lower() or 'mean' in q.lower():
+            # الوسط الحسابي
+            result_html += f'<h5>📈 الوسط الحسابي (المتوسط):</h5>'
+            result_html += f'<p><strong>الصيغة:</strong> المتوسط = (مجموع القيم) ÷ (عدد القيم)</p>'
+            result_html += f'<p><strong>مثال:</strong> متوسط الأرقام 2, 4, 6, 8 = (2+4+6+8)÷4 = 5</p>'
+            result_text = "قانون الوسط الحسابي"
+            
+        elif 'وسيط' in q.lower() or 'median' in q.lower():
+            # الوسيط
+            result_html += f'<h5>📊 الوسيط:</h5>'
+            result_html += f'<p><strong>التعريف:</strong> الوسيط هو القيمة الوسطى عند ترتيب البيانات</p>'
+            result_html += f'<p><strong>للعدد الفردي:</strong> الوسيط = القيمة الوسطى</p>'
+            result_html += f'<p><strong>للعدد الزوجي:</strong> الوسيط = متوسط القيمتين الوسطيتين</p>'
+            result_text = "قانون الوسيط"
+            
+        elif 'منوال' in q.lower() or 'mode' in q.lower():
+            # المنوال
+            result_html += f'<h5>📋 المنوال:</h5>'
+            result_html += f'<p><strong>التعريف:</strong> المنوال هو القيمة الأكثر تكراراً في البيانات</p>'
+            result_html += f'<p><strong>مثال:</strong> في المجموعة 2, 3, 3, 5, 3, 7 → المنوال = 3</p>'
+            result_text = "تعريف المنوال"
+            
+        elif 'انحراف معياري' in q.lower() or 'standard deviation' in q.lower():
+            # الانحراف المعياري
+            result_html += f'<h5>📏 الانحراف المعياري:</h5>'
+            result_html += f'<p><strong>الصيغة:</strong> σ = √[(Σ(x-μ)²)/N]</p>'
+            result_html += f'<p><strong>المعنى:</strong> مقياس لتشتت البيانات حول المتوسط</p>'
+            result_html += f'<p><strong>انحراف كبير:</strong> البيانات منتشرة</p>'
+            result_html += f'<p><strong>انحراف صغير:</strong> البيانات مركزة</p>'
+            result_text = "قانون الانحراف المعياري"
+            
+        elif 'احتمال' in q.lower() or 'probability' in q.lower():
+            # الاحتمالات
+            result_html += f'<h5>🎲 الاحتمالات:</h5>'
+            result_html += f'<h6>القوانين الأساسية:</h6>'
+            result_html += f'<p><strong>احتمال الحدث:</strong> P(A) = عدد النتائج المرغوبة / عدد النتائج الممكنة</p>'
+            result_html += f'<p><strong>احتمال التتام:</strong> P(A) + P(A\') = 1</p>'
+            result_html += f'<p><strong>احتمال الاتحاد:</strong> P(A∪B) = P(A) + P(B) - P(A∩B)</p>'
+            result_html += f'<p><strong>احتمال شرطي:</strong> P(A|B) = P(A∩B) / P(B)</p>'
+            result_text = "قوانين الاحتمالات"
+            
+        elif 'تباين' in q.lower() or 'variance' in q.lower():
+            # التباين
+            result_html += f'<h5>📐 التباين:</h5>'
+            result_html += f'<p><strong>الصيغة:</strong> Var(X) = σ² = Σ(x-μ)²/N</p>'
+            result_html += f'<p><strong>العلاقة:</strong> الانحراف المعياري = √التباين</p>'
+            result_html += f'<p><strong>المعنى:</strong> مقياس لمدى انتشار البيانات</p>'
+            result_text = "قانون التباين"
+            
+        else:
+            # معلومات عامة عن الإحصاء
+            result_html += f'<h5>📊 مفاهيم إحصائية مهمة:</h5>'
+            result_html += f'<h6>مقاييس النزعة المركزية:</h6>'
+            result_html += f'<p><strong>المتوسط:</strong> مجموع القيم ÷ عددها</p>'
+            result_html += f'<p><strong>الوسيط:</strong> القيمة الوسطى بعد الترتيب</p>'
+            result_html += f'<p><strong>المنوال:</strong> القيمة الأكثر تكراراً</p>'
+            result_html += f'<h6>مقاييس التشتت:</h6>'
+            result_html += f'<p><strong>المدى:</strong> الفرق بين أكبر وأصغر قيمة</p>'
+            result_html += f'<p><strong>التباين:</strong> متوسط مربعات الانحرافات</p>'
+            result_html += f'<p><strong>الانحراف المعياري:</strong> الجذر التربيعي للتباين</p>'
+            result_text = "مفاهيم الإحصاء الأساسية"
+        
+        result_html += '</div>'
+        return {"text": result_text, "html": result_html}
+        
+    except Exception:
+        return None
+
+# ===================== 3.7) نظام رياضيات شامل لجميع المراحل =====================
+
+def detect_educational_level(q: str) -> str:
+    """تحديد المستوى التعليمي للسؤال الرياضي"""
+    text = q.lower()
+    
+    # الإحصاء والاحتمالات
+    statistics_keywords = ['متوسط', 'وسيط', 'منوال', 'انحراف معياري', 'تباين', 'احتمال', 'إحصاء', 'probability', 'statistics']
+    if any(keyword in text for keyword in statistics_keywords):
+        return 'statistics'
+    
+    # مؤشرات الرياضيات الجامعية
+    university_keywords = ['مشتق', 'تكامل', 'نهاية', 'متسلسلة', 'مصفوفة', 'معادلة تفاضلية', 'لابلاس', 'فورير']
+    if any(keyword in text for keyword in university_keywords):
+        return 'university'
+    
+    # مؤشرات الرياضيات الثانوية
+    high_school_keywords = ['sin', 'cos', 'tan', 'لوغاريتم', 'أسي', 'تربيعية', 'مثلثات', 'هندسة تحليلية']
+    if any(keyword in text for keyword in high_school_keywords):
+        return 'high_school'
+    
+    # مؤشرات الرياضيات الإعدادية  
+    middle_school_keywords = ['جبر', 'معادلة خطية', 'نسبة', 'تناسب', 'مساحة', 'محيط', 'حجم']
+    if any(keyword in text for keyword in middle_school_keywords):
+        return 'middle_school'
+    
+    # الرياضيات الابتدائية (افتراضي)
+    return 'elementary'
+
+def solve_comprehensive_math(q: str):
+    """حل شامل للرياضيات - جميع المراحل التعليمية"""
+    try:
+        level = detect_educational_level(q)
+        
+        # الإحصاء والاحتمالات
+        if level == 'statistics':
+            return solve_statistics_math(q)
+        
+        # رياضيات الجامعة المتقدمة
+        elif level == 'university':
+            return solve_university_math(q)
+        
+        # رياضيات الثانوية
+        elif level == 'high_school':
+            return solve_high_school_math(q)
+        
+        # رياضيات الإعدادية
+        elif level == 'middle_school':
+            return solve_middle_school_math(q)
+        
+        # رياضيات الابتدائية
+        else:
+            return solve_elementary_math(q)
+            
+    except Exception as e:
+        return None
+
+def solve_university_math(q: str):
+    """رياضيات الجامعة: تفاضل، تكامل، معادلات تفاضلية، جبر خطي"""
+    try:
+        task = detect_math_task(q)
+        expr_txt = normalize_math(q)
+        x, y, t, z = symbols('x y t z')
+        
+        result_html = f'<div class="card"><h4>🎓 رياضيات جامعية: {html.escape(q)}</h4><hr>'
+        
+        # معالجة التعبير
+        expr = sympify(expr_txt, dict(sin=sin, cos=cos, tan=tan, sqrt=sqrt))
+        
+        if 'مشتق جزئي' in q.lower() or 'partial' in q.lower():
+            # مشتقات جزئية
+            res_x = diff(expr, x)
+            res_y = diff(expr, y) if 'y' in str(expr) else 0
+            result_html += f'<h5>∂ المشتقات الجزئية:</h5>'
+            result_html += f'<p><strong>∂f/∂x = </strong>{res_x}</p>'
+            result_html += f'<p><strong>∂f/∂y = </strong>{res_y}</p>'
+            result_text = f"المشتقات الجزئية: ∂f/∂x = {res_x}, ∂f/∂y = {res_y}"
+            
+        elif 'تكامل مضاعف' in q.lower() or 'double integral' in q.lower():
+            # تكاملات مضاعفة (محاولة بسيطة)
+            res = integrate(integrate(expr, x), y)
+            result_html += f'<h5>∬ التكامل المضاعف:</h5>'
+            result_html += f'<p style="background:#e8f5e8;padding:15px;border-radius:8px;"><strong>{latex(res)} + C</strong></p>'
+            result_text = f"التكامل المضاعف: {res}"
+            
+        elif 'سلسلة' in q.lower() or 'series' in q.lower():
+            # سلاسل تايلور (محاولة بسيطة)
+            from sympy import series
+            res = series(expr, x, 0, 6)  # سلسلة حول 0 حتى الدرجة 5
+            result_html += f'<h5>📈 سلسلة تايلور:</h5>'
+            result_html += f'<p style="background:#fff8dc;padding:15px;border-radius:8px;"><strong>{res}</strong></p>'
+            result_text = f"سلسلة تايلور: {res}"
+            
+        else:
+            # استخدام النظام العادي للرياضيات المتقدمة
+            return solve_advanced_math(q)
+        
+        result_html += '</div>'
+        return {"text": result_text, "html": result_html}
+        
+    except Exception as e:
+        return solve_advanced_math(q)  # العودة للنظام العادي
+
+def solve_high_school_math(q: str):
+    """رياضيات الثانوية: مثلثات، لوغاريتمات، دوال أسية"""
+    try:
+        expr_txt = normalize_math(q)
+        x = symbols('x')
+        
+        result_html = f'<div class="card"><h4>🏫 رياضيات ثانوية: {html.escape(q)}</h4><hr>'
+        
+        if any(trig in q.lower() for trig in ['sin', 'cos', 'tan', 'مثلثات']):
+            # حساب المثلثات
+            expr = sympify(expr_txt, dict(sin=sin, cos=cos, tan=tan))
+            
+            # تبسيط المتطابقات المثلثية
+            simplified = simplify(expr)
+            result_html += f'<h5>📐 حساب المثلثات:</h5>'
+            result_html += f'<p><strong>التعبير الأصلي:</strong> {expr}</p>'
+            result_html += f'<p><strong>بعد التبسيط:</strong> {simplified}</p>'
+            
+            # قيم زوايا خاصة
+            if 'قيم' in q.lower() or 'زاوية' in q.lower():
+                result_html += f'<h6>قيم الزوايا الخاصة:</h6>'
+                result_html += f'<p>sin(30°) = 1/2, cos(30°) = √3/2</p>'
+                result_html += f'<p>sin(45°) = √2/2, cos(45°) = √2/2</p>'
+                result_html += f'<p>sin(60°) = √3/2, cos(60°) = 1/2</p>'
+            
+            result_text = f"حساب المثلثات: {simplified}"
+            
+        elif 'لوغاريتم' in q.lower() or 'log' in q.lower():
+            # اللوغاريتمات
+            from sympy import log, ln
+            expr = sympify(expr_txt, dict(log=log, ln=ln))
+            
+            expanded = expand(expr)
+            result_html += f'<h5>📊 اللوغاريتمات:</h5>'
+            result_html += f'<p><strong>التوسيع:</strong> {expanded}</p>'
+            
+            # خصائص اللوغاريتمات
+            result_html += f'<h6>خصائص اللوغاريتمات:</h6>'
+            result_html += f'<p>log(ab) = log(a) + log(b)</p>'
+            result_html += f'<p>log(a/b) = log(a) - log(b)</p>'
+            result_html += f'<p>log(a^n) = n×log(a)</p>'
+            
+            result_text = f"اللوغاريتمات: {expanded}"
+            
+        else:
+            # المعادلات التربيعية والدوال
+            expr = sympify(expr_txt)
+            
+            if 'معادلة تربيعية' in q.lower() or 'x^2' in expr_txt or 'x**2' in expr_txt:
+                solutions = solve(expr, x)
+                result_html += f'<h5>🔢 المعادلة التربيعية:</h5>'
+                result_html += f'<p><strong>المعادلة:</strong> {expr} = 0</p>'
+                
+                if solutions:
+                    result_html += f'<p><strong>الحلول:</strong></p>'
+                    for i, sol in enumerate(solutions, 1):
+                        result_html += f'<p>x{i} = {sol}</p>'
+                    
+                    # قانون الحل التربيعي
+                    result_html += f'<h6>قانون الحل التربيعي: x = (-b ± √(b²-4ac)) / 2a</h6>'
+                else:
+                    result_html += f'<p>لا يوجد حل حقيقي</p>'
+                
+                result_text = f"حلول المعادلة التربيعية: {solutions}"
+            else:
+                return solve_advanced_math(q)
+        
+        result_html += '</div>'
+        return {"text": result_text, "html": result_html}
+        
+    except Exception:
+        return solve_advanced_math(q)
+
+def solve_middle_school_math(q: str):
+    """رياضيات الإعدادية: جبر أساسي، هندسة، نسب"""
+    try:
+        result_html = f'<div class="card"><h4>🏛️ رياضيات إعدادية: {html.escape(q)}</h4><hr>'
+        
+        if 'مساحة' in q.lower():
+            # حساب المساحات
+            result_html += f'<h5>📐 حساب المساحات:</h5>'
+            result_html += f'<h6>صيغ المساحات الشائعة:</h6>'
+            result_html += f'<p><strong>المربع:</strong> المساحة = الضلع²</p>'
+            result_html += f'<p><strong>المستطيل:</strong> المساحة = الطول × العرض</p>'
+            result_html += f'<p><strong>المثلث:</strong> المساحة = ½ × القاعدة × الارتفاع</p>'
+            result_html += f'<p><strong>الدائرة:</strong> المساحة = π × نق²</p>'
+            result_text = "صيغ حساب المساحات"
+            
+        elif 'محيط' in q.lower():
+            # حساب المحيطات
+            result_html += f'<h5>⭕ حساب المحيطات:</h5>'
+            result_html += f'<h6>صيغ المحيطات الشائعة:</h6>'
+            result_html += f'<p><strong>المربع:</strong> المحيط = 4 × الضلع</p>'
+            result_html += f'<p><strong>المستطيل:</strong> المحيط = 2 × (الطول + العرض)</p>'
+            result_html += f'<p><strong>المثلث:</strong> المحيط = مجموع الأضلاع الثلاثة</p>'
+            result_html += f'<p><strong>الدائرة:</strong> المحيط = 2 × π × نق</p>'
+            result_text = "صيغ حساب المحيطات"
+            
+        elif 'نسبة' in q.lower() or 'تناسب' in q.lower():
+            # النسب والتناسب
+            result_html += f'<h5>⚖️ النسب والتناسب:</h5>'
+            result_html += f'<h6>قوانين النسب:</h6>'
+            result_html += f'<p><strong>النسبة:</strong> a : b = a/b</p>'
+            result_html += f'<p><strong>التناسب:</strong> a/b = c/d → a×d = b×c</p>'
+            result_html += f'<p><strong>النسبة المئوية:</strong> النسبة المئوية = (الجزء/الكل) × 100</p>'
+            result_text = "قوانين النسب والتناسب"
+            
+        else:
+            # معادلات خطية بسيطة
+            try:
+                expr_txt = normalize_math(q)
+                x = symbols('x')
+                expr = sympify(expr_txt)
+                solutions = solve(expr, x)
+                
+                result_html += f'<h5>🔢 المعادلات الخطية:</h5>'
+                result_html += f'<p><strong>المعادلة:</strong> {expr} = 0</p>'
+                
+                if solutions:
+                    result_html += f'<p><strong>الحل:</strong> x = {solutions[0]}</p>'
+                    result_text = f"حل المعادلة الخطية: x = {solutions[0]}"
+                else:
+                    result_html += f'<p>معادلة بدون حل أو حل لامنهائي</p>'
+                    result_text = "معادلة خاصة"
+                    
+            except:
+                return None
+        
+        result_html += '</div>'
+        return {"text": result_text, "html": result_html}
+        
+    except Exception:
+        return None
+
+def solve_elementary_math(q: str):
+    """رياضيات الابتدائية: العمليات الأساسية، الكسور، الأعداد"""
+    try:
+        result_html = f'<div class="card"><h4>🧮 رياضيات ابتدائية: {html.escape(q)}</h4><hr>'
+        
+        # أولاً نجرب الحاسبة العادية
+        calc_result = try_calc_ar(q)
+        if calc_result:
+            return calc_result
+        
+        if 'كسر' in q.lower() or '/' in q:
+            # الكسور
+            result_html += f'<h5>🍰 الكسور:</h5>'
+            result_html += f'<h6>عمليات الكسور:</h6>'
+            result_html += f'<p><strong>جمع الكسور:</strong> a/b + c/d = (ad + bc)/(bd)</p>'
+            result_html += f'<p><strong>طرح الكسور:</strong> a/b - c/d = (ad - bc)/(bd)</p>'
+            result_html += f'<p><strong>ضرب الكسور:</strong> a/b × c/d = (ac)/(bd)</p>'
+            result_html += f'<p><strong>قسمة الكسور:</strong> a/b ÷ c/d = (ad)/(bc)</p>'
+            result_text = "قوانين عمليات الكسور"
+            
+        elif 'ضرب' in q.lower() and 'جدول' in q.lower():
+            # جداول الضرب
+            result_html += f'<h5>✖️ جداول الضرب:</h5>'
+            for i in range(1, 11):
+                result_html += f'<p>{i} × 1 = {i}, {i} × 2 = {i*2}, {i} × 3 = {i*3}, ... {i} × 10 = {i*10}</p>'
+            result_text = "جداول الضرب من 1 إلى 10"
+            
+        elif 'أعداد أولية' in q.lower():
+            # الأعداد الأولية
+            primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47]
+            result_html += f'<h5>🔢 الأعداد الأولية:</h5>'
+            result_html += f'<p><strong>الأعداد الأولية أقل من 50:</strong></p>'
+            result_html += f'<p>{", ".join(map(str, primes))}</p>'
+            result_html += f'<p><strong>تعريف:</strong> العدد الأولي هو عدد أكبر من 1 ولا يقبل القسمة إلا على نفسه وعلى الواحد</p>'
+            result_text = f"الأعداد الأولية: {primes}"
+            
+        else:
+            # عمليات حسابية أساسية
+            result_html += f'<h5>🧮 العمليات الأساسية:</h5>'
+            result_html += f'<p><strong>الجمع (+):</strong> ضع الأرقام فوق بعضها واجمع كل عمود</p>'
+            result_html += f'<p><strong>الطرح (-):</strong> اطرح الرقم السفلي من العلوي في كل عمود</p>'
+            result_html += f'<p><strong>الضرب (×):</strong> اضرب كل رقم بكل الأرقام الأخرى</p>'
+            result_html += f'<p><strong>القسمة (÷):</strong> كم مرة يدخل المقسوم عليه في المقسوم</p>'
+            result_text = "العمليات الحسابية الأساسية"
+        
+        result_html += '</div>'
+        return {"text": result_text, "html": result_html}
+        
+    except Exception:
+        return None
+
 # ===================== 4) HTML (واجهة) =====================
 def render_page(q="", mode="summary", result_panel=""):
     active = lambda m: "active" if mode==m else ""
@@ -423,7 +789,7 @@ input[type=text]{{width:100%;padding:15px;border:2px solid #e1e5e9;border-radius
   <div class="content">
     <form method="post" action="/">
       <label for="question">اسأل بسام:</label>
-      <input type="text" id="question" name="question" placeholder="مثال: 5 + 3 × 2 / تحويل 70 كيلو إلى رطل / أين تقع الصين؟" value="{html.escape(q)}" required>
+      <input type="text" id="question" name="question" placeholder="مثال: مشتق x^3 / مساحة المربع / جدول ضرب 7 / ما هي عاصمة فرنسا؟" value="{html.escape(q)}" required>
       <div class="mode-selector">
         <label class="mode-btn {active('summary')}"><input type="radio" name="mode" value="summary" {checked('summary')} style="display:none">📄 ملخص</label>
         <label class="mode-btn {active('math')}"><input type="radio" name="mode" value="math" {checked('math')} style="display:none">🧮 رياضيات</label>
@@ -457,7 +823,13 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
         save_question_history(q, calc["text"], "calculator")
         return render_page(q, mode, calc["html"])
 
-    # 1.5) رياضيات متقدمة (مشتقات، تكاملات، حل معادلات)
+    # 1.5) نظام رياضيات شامل (جميع المراحل التعليمية)
+    comprehensive_math = solve_comprehensive_math(q)
+    if comprehensive_math:
+        save_question_history(q, comprehensive_math["text"], "comprehensive_math")
+        return render_page(q, mode, comprehensive_math["html"])
+    
+    # النظام الرياضي القديم كاحتياطي
     if any(keyword in q.lower() for keyword in ['مشتق', 'تكامل', 'حل', 'تبسيط', 'تحليل', 'توسيع', 'نهاية', 'معادلة', 'solve', 'derivative', 'integral', 'limit']):
         advanced_math = solve_advanced_math(q)
         if advanced_math:

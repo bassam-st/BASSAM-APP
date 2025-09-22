@@ -21,7 +21,7 @@ def get_gemini_client():
     return genai.Client(api_key=api_key)
 
 
-def answer_with_ai(question: str) -> dict:
+def answer_with_ai(question: str):
     """
     الإجابة على الأسئلة باستخدام Gemini AI بطريقة ذكية وباللغة العربية.
     يعيد dict مع 'text' و 'html' أو None إذا لم يكن API key متوفراً.
@@ -104,7 +104,7 @@ def answer_with_ai(question: str) -> dict:
         }
 
 
-def smart_math_help(question: str) -> dict:
+def smart_math_help(question: str):
     """
     مساعدة ذكية في الرياضيات باستخدام Gemini
     """
