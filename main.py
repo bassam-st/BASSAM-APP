@@ -6,6 +6,21 @@ from datetime import datetime
 # بحث جاهز بدون سكربنج HTML
 from duckduckgo_search import DDGS
 
+# مكتبات الرياضيات المتقدمة
+from sympy import symbols, sympify, simplify, diff, integrate, sqrt, sin, cos, tan, solve, factor, expand, limit, oo, latex
+import sympy as sp
+
+# نظام الذكاء الاصطناعي
+try:
+    from gemini import answer_with_ai, smart_math_help, is_gemini_available
+    GEMINI_AVAILABLE = True
+except Exception as e:
+    # حتى لو كان هناك خطأ في ملف gemini.py، لا نوقف التطبيق
+    GEMINI_AVAILABLE = False
+    def answer_with_ai(q): return None
+    def smart_math_help(q): return None
+    def is_gemini_available(): return False
+
 # ==== إعدادات FastAPI ====
 app = FastAPI(title="Bassam App", version="3.1")
 
@@ -221,6 +236,147 @@ def summarize_advanced(question: str, page_texts: list, max_final_sents=4):
     out = " ".join(str(s) for s in summ(parser.document, max_final_sents)).strip()
     return out or " ".join(chosen[:max_final_sents])
 
+# ===================== 3.5) الرياضيات المتقدمة (SymPy) =====================
+
+def normalize_math(expr: str) -> str:
+    """تطبيع/تنظيف تعبير رياضي ليقبله sympy."""
+    t = (expr or "").strip()
+
+    # احذف "y=" أو "f(x)=" أو أي متغير مفرد يساوي
+    t = re.sub(r'^\s*[yf]\s*\(\s*x\s*\)\s*=\s*', '', t, flags=re.I)
+    t = re.sub(r'^\s*[a-zA-Z]\s*=\s*', '', t)
+
+    # إذا كان المستخدم كتب بالعربية "مشتق: ..." أو "تكامل: ..." خذ ما بعد النقطتين
+    m = re.search(r'[,:؛]\s*(.+)$', t)
+    t = m.group(1) if m else t
+
+    # استبدالات LaTeX الشائعة
+    t = (t.replace('\\cdot', '*')
+           .replace('\\sin', 'sin').replace('\\cos', 'cos').replace('\\tan', 'tan')
+           .replace('\\sqrt', 'sqrt')
+           .replace('^', '**'))
+
+    # أرقام عربية إلى إنجليزية (كـ احتياط)
+    arabic_digits = '٠١٢٣٤٥٦٧٨٩'
+    for i, d in enumerate(arabic_digits):
+        t = t.replace(d, str(i))
+
+    # مسافات زائدة
+    t = re.sub(r'\s+', ' ', t).strip()
+    return t
+
+
+def detect_math_task(q: str) -> str:
+    """استنتاج نوع المهمة من النص العربي: مشتق/تكامل/تبسيط/حل معادلة/تقييم."""
+    text = q.lower()
+    if any(w in text for w in ['مشتق', 'اشتق', 'اشتقاق', 'derivative', 'diff']):
+        return 'diff'
+    if any(w in text for w in ['تكامل', 'integral', 'integrate']):
+        return 'int'
+    if any(w in text for w in ['بسّط', 'تبسيط', 'simplify', 'تبسط']):
+        return 'simp'
+    if any(w in text for w in ['حل', 'احل', 'solve', 'معادلة', 'equation']):
+        return 'solve'
+    if any(w in text for w in ['حد', 'نهاية', 'limit']):
+        return 'limit'
+    if any(w in text for w in ['تحليل', 'factor']):
+        return 'factor'
+    if any(w in text for w in ['توسيع', 'expand']):
+        return 'expand'
+    # إن لم يذكر نوع المهمة نحاول التبسيط كافتراضي
+    return 'auto'
+
+
+def solve_advanced_math(q: str):
+    """حل رياضيات متقدم (مشتق/تكامل/تبسيط/حل معادلات) باستخدام SymPy وإرجاع HTML عربي."""
+    try:
+        task = detect_math_task(q)
+        expr_txt = normalize_math(q)
+
+        # متغيرات شائعة
+        x, y, t, z = symbols('x y t z')
+        
+        # معالجة التعبير
+        expr = sympify(expr_txt, dict(sin=sin, cos=cos, tan=tan, sqrt=sqrt))
+        
+        result_html = f'<div class="card"><h4>📐 المسألة: {html.escape(q)}</h4><hr>'
+        
+        if task == 'diff':
+            res = diff(expr, x)
+            result_html += f'<h5>🧮 المشتق بالنسبة إلى x:</h5>'
+            result_html += f'<p style="background:#f0f8ff;padding:15px;border-radius:8px;text-align:center;font-size:18px;"><strong>{latex(res)}</strong></p>'
+            result_html += f'<p><strong>بالتدوين العادي:</strong> {res}</p>'
+            
+        elif task == 'int':
+            res = integrate(expr, x)
+            result_html += f'<h5>∫ التكامل غير المحدد بالنسبة إلى x:</h5>'
+            result_html += f'<p style="background:#f0fff0;padding:15px;border-radius:8px;text-align:center;font-size:18px;"><strong>{latex(res)} + C</strong></p>'
+            result_html += f'<p><strong>بالتدوين العادي:</strong> {res} + C</p>'
+            
+        elif task == 'solve':
+            # حل المعادلة
+            if '=' in expr_txt:
+                lhs, rhs = expr_txt.split('=')
+                equation = sympify(lhs) - sympify(rhs)
+            else:
+                equation = expr
+            
+            solutions = solve(equation, x)
+            result_html += f'<h5>🔍 حل المعادلة:</h5>'
+            if solutions:
+                for i, sol in enumerate(solutions, 1):
+                    result_html += f'<p><strong>الحل {i}:</strong> x = {sol}</p>'
+            else:
+                result_html += f'<p>لا يوجد حل حقيقي للمعادلة</p>'
+                
+        elif task == 'factor':
+            res = factor(expr)
+            result_html += f'<h5>🔢 تحليل التعبير:</h5>'
+            result_html += f'<p style="background:#fff5ee;padding:15px;border-radius:8px;text-align:center;font-size:18px;"><strong>{latex(res)}</strong></p>'
+            result_html += f'<p><strong>بالتدوين العادي:</strong> {res}</p>'
+            
+        elif task == 'expand':
+            res = expand(expr)
+            result_html += f'<h5>📐 توسيع التعبير:</h5>'
+            result_html += f'<p style="background:#f5f5ff;padding:15px;border-radius:8px;text-align:center;font-size:18px;"><strong>{latex(res)}</strong></p>'
+            result_html += f'<p><strong>بالتدوين العادي:</strong> {res}</p>'
+            
+        elif task == 'limit':
+            # نحاول استخراج النهاية
+            res = limit(expr, x, oo)  # نهاية عند اللانهاية كافتراضي
+            result_html += f'<h5>🎯 النهاية عند اللانهاية:</h5>'
+            result_html += f'<p style="background:#ffeef5;padding:15px;border-radius:8px;text-align:center;font-size:18px;"><strong>{latex(res)}</strong></p>'
+            result_html += f'<p><strong>بالتدوين العادي:</strong> {res}</p>'
+            
+        else:
+            # محاولة تبسيط أو تقييم
+            res = simplify(expr)
+            result_html += f'<h5>✨ تبسيط/تقييم التعبير:</h5>'
+            result_html += f'<p style="background:#f8f8ff;padding:15px;border-radius:8px;text-align:center;font-size:18px;"><strong>{latex(res)}</strong></p>'
+            result_html += f'<p><strong>بالتدوين العادي:</strong> {res}</p>'
+
+        result_html += '</div>'
+        
+        # نص للحفظ في قاعدة البيانات  
+        result_text = f"نتيجة {task}: {res}"
+        
+        return {"text": result_text, "html": result_html}
+
+    except Exception as e:
+        error_html = f'''<div class="card">
+            <h4>❌ تعذّر فهم التعبير الرياضي</h4>
+            <p>جرّب أمثلة مثل:</p>
+            <ul>
+                <li><code>مشتق: x**3 + 2*sin(x)</code></li>
+                <li><code>تكامل: cos(x)</code></li>
+                <li><code>تبسيط: (x**2-1)/(x-1)</code></li>
+                <li><code>حل: x**2 - 5*x + 6 = 0</code></li>
+                <li><code>تحليل: x**2 - 4</code></li>
+            </ul>
+            <small style="color:#666;">خطأ تفصيلي: {html.escape(str(e))}</small>
+        </div>'''
+        return {"text": f"خطأ: {str(e)}", "html": error_html}
+
 # ===================== 4) HTML (واجهة) =====================
 def render_page(q="", mode="summary", result_panel=""):
     active = lambda m: "active" if mode==m else ""
@@ -262,7 +418,7 @@ input[type=text]{{width:100%;padding:15px;border:2px solid #e1e5e9;border-radius
 <div class="container">
   <div class="header">
     <a href="/history" class="history-btn">📚 السجل</a>
-    <h1>🤖 تطبيق بسام</h1><p>آلة حاسبة، محول وحدات، وبحث ذكي</p>
+    <h1>🤖 تطبيق بسام الذكي</h1><p>رياضيات متقدمة، ذكاء اصطناعي، وبحث ذكي</p>
   </div>
   <div class="content">
     <form method="post" action="/">
@@ -270,6 +426,7 @@ input[type=text]{{width:100%;padding:15px;border:2px solid #e1e5e9;border-radius
       <input type="text" id="question" name="question" placeholder="مثال: 5 + 3 × 2 / تحويل 70 كيلو إلى رطل / أين تقع الصين؟" value="{html.escape(q)}" required>
       <div class="mode-selector">
         <label class="mode-btn {active('summary')}"><input type="radio" name="mode" value="summary" {checked('summary')} style="display:none">📄 ملخص</label>
+        <label class="mode-btn {active('math')}"><input type="radio" name="mode" value="math" {checked('math')} style="display:none">🧮 رياضيات</label>
         <label class="mode-btn {active('prices')}"><input type="radio" name="mode" value="prices"  {checked('prices')}  style="display:none">💰 أسعار</label>
         <label class="mode-btn {active('images')}"><input type="radio" name="mode" value="images"  {checked('images')}  style="display:none">🖼️ صور</label>
       </div>
@@ -294,11 +451,18 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
     q = (question or "").strip()
     if not q: return render_page()
 
-    # 1) آلة حاسبة
+    # 1) آلة حاسبة (أساسية)
     calc = try_calc_ar(q)
     if calc:
         save_question_history(q, calc["text"], "calculator")
         return render_page(q, mode, calc["html"])
+
+    # 1.5) رياضيات متقدمة (مشتقات، تكاملات، حل معادلات)
+    if any(keyword in q.lower() for keyword in ['مشتق', 'تكامل', 'حل', 'تبسيط', 'تحليل', 'توسيع', 'نهاية', 'معادلة', 'solve', 'derivative', 'integral', 'limit']):
+        advanced_math = solve_advanced_math(q)
+        if advanced_math:
+            save_question_history(q, advanced_math["text"], "advanced_math")
+            return render_page(q, mode, advanced_math["html"])
 
     # 2) تحويل وحدات
     conv = convert_query_ar(q)
@@ -306,7 +470,14 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
         save_question_history(q, conv["text"], "converter")
         return render_page(q, mode, conv["html"])
 
-    # 3) بحث/أسعار/صور (DuckDuckGo API)
+    # 3) الذكاء الاصطناعي (Gemini AI)
+    if GEMINI_AVAILABLE and is_gemini_available():
+        ai_response = answer_with_ai(q)
+        if ai_response:
+            save_question_history(q, ai_response["text"], "ai_answer")
+            return render_page(q, mode, ai_response["html"])
+
+    # 4) بحث/أسعار/صور (DuckDuckGo API)
     try:
         results = []
         ddgs = DDGS()

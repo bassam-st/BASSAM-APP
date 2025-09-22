@@ -14,7 +14,7 @@ integrations = ["python_gemini:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["rapidfuzz-cpp", "taskflow", "xcodebuild", "zlib"]
+packages = ["glibcLocales", "rapidfuzz-cpp", "taskflow", "xcodebuild", "zlib"]
 
 [workflows]
 runButton = "Project"
@@ -55,6 +55,14 @@ externalPort = 3000
 [[ports]]
 localPort = 35833
 externalPort = 3002
+
+[[ports]]
+localPort = 36447
+externalPort = 6800
+
+[[ports]]
+localPort = 37529
+externalPort = 8000
 
 [[ports]]
 localPort = 37565
