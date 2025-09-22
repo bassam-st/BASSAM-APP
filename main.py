@@ -266,6 +266,27 @@ def normalize_math(expr: str) -> str:
            .replace('\\sqrt', 'sqrt')
            .replace('^', '**'))
 
+    # تحويل الدوال المثلثية للدرجات - الحالات الشائعة
+    degree_conversions = {
+        'sin(0)': 'sin(0)',
+        'sin(30)': 'sin(pi/6)',
+        'sin(45)': 'sin(pi/4)', 
+        'sin(60)': 'sin(pi/3)',
+        'sin(90)': 'sin(pi/2)',
+        'cos(0)': 'cos(0)',
+        'cos(30)': 'cos(pi/6)',
+        'cos(45)': 'cos(pi/4)',
+        'cos(60)': 'cos(pi/3)', 
+        'cos(90)': 'cos(pi/2)',
+        'tan(0)': 'tan(0)',
+        'tan(30)': 'tan(pi/6)',
+        'tan(45)': 'tan(pi/4)',
+        'tan(60)': 'tan(pi/3)'
+    }
+    
+    for degree_form, radian_form in degree_conversions.items():
+        t = t.replace(degree_form, radian_form)
+
     # أرقام عربية إلى إنجليزية (كـ احتياط)
     arabic_digits = '٠١٢٣٤٥٦٧٨٩'
     for i, d in enumerate(arabic_digits):
@@ -307,7 +328,8 @@ def solve_advanced_math(q: str):
         x, y, t, z = symbols('x y t z')
         
         # معالجة التعبير
-        expr = sympify(expr_txt, dict(sin=sin, cos=cos, tan=tan, sqrt=sqrt))
+        from sympy import pi
+        expr = sympify(expr_txt, dict(sin=sin, cos=cos, tan=tan, sqrt=sqrt, pi=pi))
         
         result_html = f'<div class="card"><h4>📐 المسألة: {html.escape(q)}</h4><hr>'
         res = None  # تهيئة المتغير
@@ -364,9 +386,19 @@ def solve_advanced_math(q: str):
         else:
             # محاولة تبسيط أو تقييم
             res = simplify(expr)
-            result_html += f'<h5>✨ تبسيط/تقييم التعبير:</h5>'
-            result_html += f'<p style="background:#f8f8ff;padding:15px;border-radius:8px;text-align:center;font-size:18px;"><strong>{latex(res)}</strong></p>'
-            result_html += f'<p><strong>بالتدوين العادي:</strong> {res}</p>'
+            # إذا كانت النتيجة تحتوي على دوال مثلثية، حاول التقييم العددي
+            numerical_res = expr.evalf()
+            if numerical_res != expr:
+                result_html += f'<h5>🧮 تقييم التعبير:</h5>'
+                result_html += f'<p style="background:#e8f5e8;padding:15px;border-radius:8px;text-align:center;font-size:24px;"><strong>{numerical_res}</strong></p>'
+                if res != expr:
+                    result_html += f'<p><strong>التبسيط الرمزي:</strong> {res}</p>'
+                result_html += f'<p><strong>التعبير الأصلي:</strong> {expr}</p>'
+                res = numerical_res
+            else:
+                result_html += f'<h5>✨ تبسيط/تقييم التعبير:</h5>'
+                result_html += f'<p style="background:#f8f8ff;padding:15px;border-radius:8px;text-align:center;font-size:18px;"><strong>{latex(res)}</strong></p>'
+                result_html += f'<p><strong>بالتدوين العادي:</strong> {res}</p>'
 
         result_html += '</div>'
         
@@ -490,7 +522,10 @@ def detect_educational_level(q: str) -> str:
     if any(keyword in text for keyword in university_keywords):
         return 'university'
     
-    # مؤشرات الرياضيات الثانوية
+    # مؤشرات الرياضيات الثانوية - الدوال المثلثية لها أولوية
+    if any(pattern in text for pattern in ['sin(', 'cos(', 'tan(']):
+        return 'high_school'
+        
     high_school_keywords = ['sin', 'cos', 'tan', 'لوغاريتم', 'أسي', 'تربيعية', 'مثلثات', 'هندسة تحليلية']
     if any(keyword in text for keyword in high_school_keywords):
         return 'high_school'
@@ -619,23 +654,51 @@ def solve_high_school_math(q: str):
         result_html = f'<div class="card"><h4>🏫 رياضيات ثانوية: {html.escape(q)}</h4><hr>'
         
         if any(trig in q.lower() for trig in ['sin', 'cos', 'tan', 'مثلثات']):
-            # حساب المثلثات
-            expr = sympify(expr_txt, dict(sin=sin, cos=cos, tan=tan))
+            # حساب المثلثات مع تحويل الدرجات للراديان
+            from sympy import pi
+            expr_with_degrees = expr_txt
             
-            # تبسيط المتطابقات المثلثية
+            # تحويل الدوال المثلثية للدرجات الشائعة  
+            degree_conversions = {
+                'sin(0)': 'sin(0)',
+                'sin(30)': 'sin(pi/6)',
+                'sin(45)': 'sin(pi/4)', 
+                'sin(60)': 'sin(pi/3)',
+                'sin(90)': 'sin(pi/2)',
+                'cos(0)': 'cos(0)',
+                'cos(30)': 'cos(pi/6)',
+                'cos(45)': 'cos(pi/4)',
+                'cos(60)': 'cos(pi/3)', 
+                'cos(90)': 'cos(pi/2)',
+                'tan(0)': 'tan(0)',
+                'tan(30)': 'tan(pi/6)',
+                'tan(45)': 'tan(pi/4)',
+                'tan(60)': 'tan(pi/3)'
+            }
+            
+            for degree_form, radian_form in degree_conversions.items():
+                expr_with_degrees = expr_with_degrees.replace(degree_form, radian_form)
+            
+            expr = sympify(expr_with_degrees, dict(sin=sin, cos=cos, tan=tan, pi=pi))
+            
+            # تقييم عددي للنتيجة
+            numerical_result = expr.evalf()
             simplified = simplify(expr)
+            
             result_html += f'<h5>📐 حساب المثلثات:</h5>'
-            result_html += f'<p><strong>التعبير الأصلي:</strong> {expr}</p>'
-            result_html += f'<p><strong>بعد التبسيط:</strong> {simplified}</p>'
+            result_html += f'<p style="background:#e8f5e8;padding:15px;border-radius:8px;text-align:center;font-size:24px;"><strong>النتيجة = {numerical_result}</strong></p>'
+            result_html += f'<p><strong>التعبير الأصلي:</strong> {q}</p>'
+            if simplified != expr:
+                result_html += f'<p><strong>التبسيط الرمزي:</strong> {simplified}</p>'
             
             # قيم زوايا خاصة
-            if 'قيم' in q.lower() or 'زاوية' in q.lower():
-                result_html += f'<h6>قيم الزوايا الخاصة:</h6>'
-                result_html += f'<p>sin(30°) = 1/2, cos(30°) = √3/2</p>'
-                result_html += f'<p>sin(45°) = √2/2, cos(45°) = √2/2</p>'
-                result_html += f'<p>sin(60°) = √3/2, cos(60°) = 1/2</p>'
+            result_html += f'<div style="background:#f0f8ff;padding:10px;border-radius:5px;margin-top:10px;">'
+            result_html += f'<small><strong>قيم الزوايا الخاصة:</strong><br>'
+            result_html += f'sin(30°) = 0.5, cos(30°) = 0.866<br>'
+            result_html += f'sin(60°) = 0.866, cos(60°) = 0.5<br>'
+            result_html += f'sin(45°) = 0.707, cos(45°) = 0.707</small></div>'
             
-            result_text = f"حساب المثلثات: {simplified}"
+            result_text = f"حساب المثلثات: {numerical_result}"
             
         elif 'لوغاريتم' in q.lower() or 'log' in q.lower():
             # اللوغاريتمات
@@ -895,8 +958,8 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
         save_question_history(q, comprehensive_math["text"], "comprehensive_math")
         return render_page(q, mode, comprehensive_math["html"])
     
-    # النظام الرياضي القديم كاحتياطي
-    if any(keyword in q.lower() for keyword in ['مشتق', 'تكامل', 'حل', 'تبسيط', 'تحليل', 'توسيع', 'نهاية', 'معادلة', 'solve', 'derivative', 'integral', 'limit']):
+    # النظام الرياضي للتعبيرات المثلثية والرياضية
+    if any(keyword in q.lower() for keyword in ['مشتق', 'تكامل', 'حل', 'تبسيط', 'تحليل', 'توسيع', 'نهاية', 'معادلة', 'solve', 'derivative', 'integral', 'limit', 'sin', 'cos', 'tan', '+', '-', '*', '/']):
         advanced_math = solve_advanced_math(q)
         if advanced_math:
             save_question_history(q, advanced_math["text"], "advanced_math")
