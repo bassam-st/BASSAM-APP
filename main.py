@@ -868,6 +868,23 @@ async def home(request: Request):
     mode = request.query_params.get("mode", "summary")
     return render_page(q, mode)
 
+@app.get("/test", response_class=HTMLResponse)
+async def test_page():
+    return HTMLResponse("""
+    <!DOCTYPE html>
+    <html lang="ar">
+    <head>
+        <meta charset="UTF-8">
+        <title>اختبار</title>
+    </head>
+    <body style="font-family: Arial; padding: 50px; text-align: center; background: #f0f8ff;">
+        <h1 style="color: #333;">🎉 الخادم يعمل بنجاح!</h1>
+        <p style="font-size: 18px;">إذا ترى هذه الرسالة، فإن النظام يعمل بشكل صحيح.</p>
+        <a href="/" style="display: inline-block; margin: 20px; padding: 15px 30px; background: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">العودة للصفحة الرئيسية</a>
+    </body>
+    </html>
+    """)
+
 @app.post("/", response_class=HTMLResponse)
 async def run(question: str = Form(...), mode: str = Form("summary")):
     q = (question or "").strip()
