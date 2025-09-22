@@ -17,9 +17,9 @@ try:
 except Exception as e:
     # حتى لو كان هناك خطأ في ملف gemini.py، لا نوقف التطبيق
     GEMINI_AVAILABLE = False
-    def answer_with_ai(question): return None
-    def smart_math_help(question): return None
-    def is_gemini_available(): return False
+    def answer_with_ai(question: str): return None
+    def smart_math_help(question: str): return None
+    def is_gemini_available() -> bool: return False
 
 # ==== إعدادات FastAPI ====
 app = FastAPI(title="Bassam App", version="3.1")
