@@ -886,8 +886,18 @@ async def test_page():
     """)
 
 @app.post("/", response_class=HTMLResponse)
-async def run(question: str = Form(...), mode: str = Form("summary")):
+async def run(request: Request, question: str = Form(...), mode: str = Form("summary")):
+    # تنظيف وإصلاح النص العربي
     q = (question or "").strip()
+    
+    # محاولة إصلاح مشكلة التشفير إذا كانت موجودة
+    try:
+        # إذا كان النص مُشوّه، حاول فكه
+        if q and len(q) > 0 and all(ord(c) < 256 for c in q):
+            q = q.encode('latin1').decode('utf-8')
+    except:
+        pass  # إذا فشل التحويل، استخدم النص كما هو
+    
     if not q: return render_page()
 
     # 1) آلة حاسبة (أساسية)
@@ -915,12 +925,17 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
         save_question_history(q, conv["text"], "converter")
         return render_page(q, mode, conv["html"])
 
-    # 3) الذكاء الاصطناعي (Gemini AI)
+    # 3) الذكاء الاصطناعي (Gemini AI) - نجرب أولاً للأسئلة العامة
     if GEMINI_AVAILABLE and is_gemini_available():
-        ai_response = answer_with_ai(q)
-        if ai_response:
-            save_question_history(q, ai_response["text"], "ai_answer")
-            return render_page(q, mode, ai_response["html"])
+        # للأسئلة العامة التي ليست حسابية صرفة
+        has_math_only = any(op in q for op in ['+', '-', '×', '÷', '*', '/', '=', '(', ')']) and \
+                       all(c.isdigit() or c in '+−×÷*/.=()٠١٢٣٤٥٦٧٨٩ ' for c in q.replace('س', '').replace('ص', ''))
+        
+        if not has_math_only:  # إذا لم يكن حسابية صرفة، جرب AI
+            ai_response = answer_with_ai(q)
+            if ai_response:
+                save_question_history(q, ai_response["text"], "ai_answer")
+                return render_page(q, mode, ai_response["html"])
 
     # 4) بحث/أسعار/صور (DuckDuckGo API)
     try:
