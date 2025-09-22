@@ -225,6 +225,19 @@ def summarize_advanced(question: str, page_texts: list, max_final_sents=4):
 def render_page(q="", mode="summary", result_panel=""):
     active = lambda m: "active" if mode==m else ""
     checked= lambda m: "checked" if mode==m else ""
+    
+    # تقسيم JavaScript لتجنب مشاكل f-string مع assignment operators
+    js_script = '''
+document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+        document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        btn.querySelector('input').checked = true;
+    });
+});
+document.getElementById('question').focus();
+    '''
+    
     return f"""<!DOCTYPE html>
 <html lang="ar" dir="rtl"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -266,10 +279,7 @@ input[type=text]{{width:100%;padding:15px;border:2px solid #e1e5e9;border-radius
   </div>
   <div class="footer"><p>تطبيق بسام v3.1</p></div>
 </div>
-<script>
-document.querySelectorAll('.mode-btn').forEach(btn=>{btn.addEventListener('click',()=>{document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');btn.querySelector('input').checked=true;});});
-document.getElementById('question').focus();
-</script>
+<script>{js_script}</script>
 </body></html>"""
 
 # ===================== المسارات =====================
@@ -299,9 +309,9 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
     # 3) بحث/أسعار/صور (DuckDuckGo API)
     try:
         results = []
-        async with DDGS() as ddgs:
-            for r in ddgs.text(q, region="xa-ar", safesearch="moderate", max_results=12):
-                results.append(r)
+        ddgs = DDGS()
+        for r in ddgs.text(q, region="xa-ar", safesearch="moderate", max_results=12):
+            results.append(r)
 
         snippets = [re.sub(r"\s+", " ", (r.get("body") or "")) for r in results]
         links    = [r.get("href") for r in results]
