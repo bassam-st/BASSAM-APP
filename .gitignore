@@ -128,6 +128,20 @@ ENV/
 env.bak/
 venv.bak/
 
+# Temporary files
+/tmp/
+temp/
+*.tmp
+*.temp
+
+# Logs
+*.log
+logs/
+
+# Development files
+debug/
+test_response*.html
+
 # Spyder project settings
 .spyderproject
 .spyproject
