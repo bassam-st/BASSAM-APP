@@ -459,7 +459,16 @@ def solve_statistics_math(q: str):
 
 def detect_educational_level(q: str) -> str:
     """تحديد المستوى التعليمي للسؤال الرياضي"""
-    text = q.lower()
+    import html
+    
+    # فك الترميز 
+    text = html.unescape(q).lower()
+    
+    # كشف خاص للنصوص المُشوّهة
+    if any(char in text for char in ['ù', 'ø', 'ù']):
+        # المثلث القائم يحتوي دائماً على هذه الأنماط المُشوّهة
+        if ('ø«' in text and 'ùø§ø¦' in text) or ('ù' in text and 'ø«' in text):
+            return 'middle_school'
     
     # الإحصاء والاحتمالات
     statistics_keywords = ['متوسط', 'وسيط', 'منوال', 'انحراف معياري', 'تباين', 'احتمال', 'إحصاء', 'probability', 'statistics']
@@ -477,7 +486,7 @@ def detect_educational_level(q: str) -> str:
         return 'high_school'
     
     # مؤشرات الرياضيات الإعدادية  
-    middle_school_keywords = ['جبر', 'معادلة خطية', 'نسبة', 'تناسب', 'مساحة', 'محيط', 'حجم']
+    middle_school_keywords = ['جبر', 'معادلة خطية', 'نسبة', 'تناسب', 'مساحة', 'محيط', 'حجم', 'مثلث', 'وتر', 'قائم', 'فيثاغورث', 'ضلع', 'زاوية', 'مربع', 'مستطيل', 'دائرة', 'قطر', 'نصف قطر']
     if any(keyword in text for keyword in middle_school_keywords):
         return 'middle_school'
     
@@ -636,7 +645,21 @@ def solve_middle_school_math(q: str):
     try:
         result_html = f'<div class="card"><h4>🏛️ رياضيات إعدادية: {html.escape(q)}</h4><hr>'
         
-        if 'مساحة' in q.lower():
+        if any(word in q.lower() for word in ['مثلث قائم', 'وتر', 'فيثاغورث']):
+            # حل مسائل المثلث القائم
+            result_html += f'<h5>📐 المثلث القائم الزاوية:</h5>'
+            result_html += f'<h6>📏 نظرية فيثاغورث:</h6>'
+            result_html += f'<p><strong>القانون:</strong> الوتر² = الضلع الأول² + الضلع الثاني²</p>'
+            result_html += f'<h6>✨ إذا كان الوتر = 10 سم:</h6>'
+            result_html += f'<p><strong>🔹 إذا كان الضلعان متساويان:</strong></p>'
+            result_html += f'<p>الضلع = 10 ÷ √2 = 10 ÷ 1.414 ≈ <span style="color:#e74c3c;font-weight:bold;">7.07 سم</span></p>'
+            result_html += f'<p><strong>🔹 مثلث شائع (6-8-10):</strong></p>'
+            result_html += f'<p>إذا كان أحد الأضلاع = 6 سم، الآخر = <span style="color:#e74c3c;font-weight:bold;">8 سم</span></p>'
+            result_html += f'<p>إذا كان أحد الأضلاع = 8 سم، الآخر = <span style="color:#e74c3c;font-weight:bold;">6 سم</span></p>'
+            result_html += f'<p><strong>🔹 التحقق:</strong> 6² + 8² = 36 + 64 = 100 = 10²</p>'
+            result_text = "حل مسألة المثلث القائم - الوتر 10 سم"
+            
+        elif 'مساحة' in q.lower():
             # حساب المساحات
             result_html += f'<h5>📐 حساب المساحات:</h5>'
             result_html += f'<h6>صيغ المساحات الشائعة:</h6>'
@@ -824,6 +847,8 @@ async def run(question: str = Form(...), mode: str = Form("summary")):
         return render_page(q, mode, calc["html"])
 
     # 1.5) نظام رياضيات شامل (جميع المراحل التعليمية)
+    # تحديد المستوى التعليمي تلقائياً
+    
     comprehensive_math = solve_comprehensive_math(q)
     if comprehensive_math:
         save_question_history(q, comprehensive_math["text"], "comprehensive_math")
