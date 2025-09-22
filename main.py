@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Request, Form, Query
-from fastapi.responses import HTMLResponse, Response, FileResponse
+from fastapi.responses import HTMLResponse, Response
 import httpx, re, ast, math, os, psycopg2, html, csv, io
 from datetime import datetime
 
@@ -23,16 +23,6 @@ except Exception as e:
 
 # ==== إعدادات FastAPI ====
 app = FastAPI(title="Bassam App", version="3.1")
-
-# خدمة ملف Service Worker للـ PWA
-@app.get("/service-worker.js")
-async def service_worker():
-    return FileResponse("service-worker.js", media_type="application/javascript")
-
-# خدمة ملف Manifest للـ PWA  
-@app.get("/manifest.json")
-async def manifest():
-    return FileResponse("manifest.json", media_type="application/json")
 
 # ===================== قاعدة البيانات (PostgreSQL) =====================
 def get_db_connection():
@@ -265,7 +255,6 @@ def normalize_math(expr: str) -> str:
            .replace('\\sin', 'sin').replace('\\cos', 'cos').replace('\\tan', 'tan')
            .replace('\\sqrt', 'sqrt')
            .replace('^', '**'))
-
 
     # أرقام عربية إلى إنجليزية (كـ احتياط)
     arabic_digits = '٠١٢٣٤٥٦٧٨٩'
