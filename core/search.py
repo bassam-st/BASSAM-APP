@@ -6,7 +6,10 @@
 import httpx
 import re
 from typing import Dict, List, Optional, Any
-from duckduckgo_search import DDGS
+try:
+    from ddgs import DDGS
+except ImportError:
+    from duckduckgo_search import DDGS
 from core.utils import is_arabic, clean_html, normalize_text
 
 # استيراد مكتبات التلخيص

@@ -19,10 +19,13 @@ from sympy import (
 )
 
 try:
-    from sympy.matrices import matrix_rank as rank
+    from sympy.matrices.dense import matrix_rank as rank
 except ImportError:
-    def rank(matrix):
-        return matrix.rank()
+    try:
+        from sympy import rank
+    except ImportError:
+        def rank(matrix):
+            return matrix.rank()
 
 from core.utils import convert_arabic_numbers
 
@@ -55,7 +58,7 @@ class MathEngine:
                 break
         
         # تطبيع العمليات
-        expr = expr.replace('^', '**').replace('جذر', 'sqrt')
+        expr = expr.replace('^', '**').replace('جذر', 'sqrt').replace('√', 'sqrt')
         expr = re.sub(r'\\cdot', '*', expr)
         expr = re.sub(r'\\(sin|cos|tan|sqrt|ln|log)', r'\1', expr)
         
@@ -319,7 +322,22 @@ class MathEngine:
                 result = expand(expr)
                 op_name = 'التوسيع'
             else:
-                result = expr
+                # حساب القيمة العددية
+                if hasattr(expr, 'evalf'):
+                    numeric_result = expr.evalf()
+                    # تنظيف الأرقام العشرية الطويلة
+                    if numeric_result.is_real and numeric_result.is_finite:
+                        # تحويل لـ float ثم إزالة الأصفار الزائدة
+                        float_val = float(numeric_result)
+                        if float_val == int(float_val):
+                            result = int(float_val)
+                        else:
+                            result = round(float_val, 10)
+                            result = f"{result:g}"  # إزالة الأصفار الزائدة
+                    else:
+                        result = str(numeric_result)
+                else:
+                    result = expr
                 op_name = 'التقييم'
             
             return {
