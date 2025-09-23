@@ -36,18 +36,38 @@ class AIEngine:
                 # تجربة النماذج الحديثة المتاحة
                 try:
                     self.model = genai.GenerativeModel('gemini-1.5-flash')
-                except:
+                    print("✅ تم تحميل Gemini 1.5 Flash")
+                except Exception as e1:
                     try:
                         self.model = genai.GenerativeModel('gemini-1.5-pro')
-                    except:
+                        print("✅ تم تحميل Gemini 1.5 Pro")
+                    except Exception as e2:
                         try:
                             self.model = genai.GenerativeModel('gemini-pro-latest')
-                        except:
-                            self.model = genai.GenerativeModel('gemini-pro')
-                self.is_available = True
+                            print("✅ تم تحميل Gemini Pro Latest")
+                        except Exception as e3:
+                            try:
+                                self.model = genai.GenerativeModel('gemini-pro')
+                                print("✅ تم تحميل Gemini Pro")
+                            except Exception as e4:
+                                print(f"❌ فشل تحميل جميع نماذج Gemini: {e4}")
+                                self.model = None
+                
+                if self.model:
+                    self.is_available = True
+                    print("✅ Gemini AI جاهز ومتوفر")
+                else:
+                    self.is_available = False
+                    print("❌ لم يتم تحميل أي نموذج Gemini")
+                    
             except Exception as e:
-                print(f"خطأ في تهيئة Gemini: {e}")
+                print(f"❌ خطأ في تهيئة Gemini: {e}")
                 self.is_available = False
+        else:
+            if not GENAI_AVAILABLE:
+                print("❌ مكتبة Google Generative AI غير متوفرة")
+            if not self.api_key:
+                print("❌ GEMINI_API_KEY غير موجود")
     
     def is_gemini_available(self) -> bool:
         """التحقق من توفر خدمة Gemini"""
