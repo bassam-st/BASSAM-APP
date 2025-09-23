@@ -61,9 +61,19 @@ class MathEngine:
         expr = re.sub(r'\\cdot', '*', expr)
         expr = re.sub(r'\\(sin|cos|tan|sqrt|ln|log)', r'\1', expr)
         
-        # معالجة المسافات (إضافة + للضرب الضمني)
+        # معالجة المسافات (الضرب الضمني)
         expr = re.sub(r'(\d+)\s+([a-zA-Z])', r'\1*\2', expr)
-        expr = re.sub(r'([a-zA-Z0-9\)])\s+([a-zA-Z])', r'\1 + \2', expr)
+        expr = re.sub(r'([a-zA-Z0-9\)])\s+([a-zA-Z])', r'\1*\2', expr)
+        # معالجة الضرب الضمني مع الأقواس (مع تجنب الدوال المعروفة)
+        # أولاً، احفظ الدوال المعروفة
+        functions = ['sin', 'cos', 'tan', 'sqrt', 'ln', 'log', 'exp', 'abs']
+        for func in functions:
+            expr = expr.replace(f'{func}*(', f'{func}(')
+        # ثم طبق قاعدة الضرب الضمني
+        expr = re.sub(r'([a-zA-Z0-9\)])\s*\(', r'\1*(', expr)
+        # وأعد الدوال المعروفة
+        for func in functions:
+            expr = expr.replace(f'{func}*(', f'{func}(')
         
         return expr.strip()
     
@@ -235,11 +245,36 @@ class MathEngine:
     def solve_matrix(self, matrix_str: str) -> Dict[str, Any]:
         """عمليات المصفوفات"""
         try:
+            import ast
+            
             # تنظيف النص
             matrix_str = matrix_str.replace('matrix:', '').strip()
             
-            # تحويل إلى مصفوفة SymPy
-            matrix = Matrix(eval(matrix_str))
+            # تحويل آمن باستخدام ast.literal_eval
+            try:
+                matrix_data = ast.literal_eval(matrix_str)
+                # التحقق من أن البيانات قائمة من القوائم أو الأرقام
+                if not isinstance(matrix_data, (list, tuple)):
+                    raise ValueError("البيانات يجب أن تكون قائمة")
+                
+                # التحقق من أن كل عنصر رقم أو قائمة من الأرقام
+                def validate_matrix_data(data):
+                    if isinstance(data, (int, float)):
+                        return True
+                    elif isinstance(data, (list, tuple)):
+                        return all(validate_matrix_data(item) for item in data)
+                    else:
+                        return False
+                
+                if not validate_matrix_data(matrix_data):
+                    raise ValueError("البيانات يجب أن تحتوي على أرقام فقط")
+                
+                matrix = Matrix(matrix_data)
+            except (ValueError, SyntaxError) as e:
+                return {
+                    'success': False,
+                    'error': f'تنسيق المصفوفة غير صحيح: {str(e)}'
+                }
             
             # حساب العمليات المختلفة
             results = {
