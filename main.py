@@ -316,7 +316,8 @@ def generate_result_html(result: dict) -> str:
     query = result.get("query", "")
     data = result.get("result", {})
     
-    html = f"""
+    # CSS و HTML الأساسي
+    base_html = """
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
     <head>
@@ -324,37 +325,37 @@ def generate_result_html(result: dict) -> str:
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>نتائج البحث - بسام الذكي</title>
         <style>
-            * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-            body {{
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            body {
                 font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 min-height: 100vh;
                 padding: 20px;
                 direction: rtl;
-            }}
-            .container {{
+            }
+            .container {
                 max-width: 900px;
                 margin: 0 auto;
                 background: white;
                 border-radius: 20px;
                 box-shadow: 0 20px 40px rgba(0,0,0,0.1);
                 overflow: hidden;
-            }}
-            .header {{
+            }
+            .header {
                 background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
                 color: white;
                 padding: 30px;
                 text-align: center;
-            }}
-            .content {{ padding: 30px; }}
-            .result-card {{
+            }
+            .content { padding: 30px; }
+            .result-card {
                 background: #f8f9fa;
                 border-radius: 15px;
                 padding: 25px;
                 margin: 20px 0;
                 border-left: 5px solid #4facfe;
-            }}
-            .back-btn {{
+            }
+            .back-btn {
                 display: inline-block;
                 padding: 12px 24px;
                 background: #4facfe;
@@ -363,27 +364,27 @@ def generate_result_html(result: dict) -> str:
                 border-radius: 25px;
                 margin-bottom: 20px;
                 transition: transform 0.3s;
-            }}
-            .back-btn:hover {{ transform: translateY(-2px); }}
-            .math-result {{ background: #e8f5e8; border-left-color: #28a745; }}
-            .ai-result {{ background: #e3f2fd; border-left-color: #2196f3; }}
-            .search-result {{ background: #fff3e0; border-left-color: #ff9800; }}
-            .error-result {{ background: #ffebee; border-left-color: #f44336; }}
-            .image-grid {{
+            }
+            .back-btn:hover { transform: translateY(-2px); }
+            .math-result { background: #e8f5e8; border-left-color: #28a745; }
+            .ai-result { background: #e3f2fd; border-left-color: #2196f3; }
+            .search-result { background: #fff3e0; border-left-color: #ff9800; }
+            .error-result { background: #ffebee; border-left-color: #f44336; }
+            .image-grid {
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
                 gap: 15px;
                 margin-top: 20px;
-            }}
-            .image-card {{
+            }
+            .image-card {
                 background: white;
                 border-radius: 10px;
                 overflow: hidden;
                 box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-            }}
-            .image-card img {{ width: 100%; height: 150px; object-fit: cover; }}
-            .image-card .title {{ padding: 10px; font-size: 0.9em; }}
-            pre {{ background: #f4f4f4; padding: 15px; border-radius: 8px; overflow-x: auto; }}
+            }
+            .image-card img { width: 100%; height: 150px; object-fit: cover; }
+            .image-card .title { padding: 10px; font-size: 0.9em; }
+            pre { background: #f4f4f4; padding: 15px; border-radius: 8px; overflow-x: auto; }
         </style>
     </head>
     <body>
@@ -396,107 +397,97 @@ def generate_result_html(result: dict) -> str:
             <div class="content">
                 <a href="/" class="back-btn">← العودة للبحث</a>
                 
-                <h2>السؤال: {query}</h2>
-    """
+                <h2>السؤال: """ + query + """</h2>"""
     
-    # معالجة النتائج حسب النوع
+    # معالجة النتائج
     if "error" in data:
-        html += f"""
+        base_html += """
                 <div class="result-card error-result">
                     <h3>❌ خطأ</h3>
-                    <p>{data['error']}</p>
-                </div>
-        """
+                    <p>""" + str(data['error']) + """</p>
+                </div>"""
     
     elif mode.startswith("smart_math") or mode == "math":
-        # نتائج رياضية
         if data.get('success'):
-            html += f"""
+            base_html += """
                 <div class="result-card math-result">
-                    <h3>📊 {data.get('operation', 'نتيجة رياضية')}</h3>
-            """
+                    <h3>📊 """ + data.get('operation', 'نتيجة رياضية') + """</h3>"""
             
             if 'image' in data:
-                html += f'<img src="data:image/png;base64,{data["image"]}" style="max-width: 100%; border-radius: 10px; margin: 15px 0;">'
+                base_html += '<img src="data:image/png;base64,' + data["image"] + '" style="max-width: 100%; border-radius: 10px; margin: 15px 0;">'
             
             if 'result' in data:
-                html += f"<p><strong>النتيجة:</strong> <code>{data['result']}</code></p>"
+                base_html += "<p><strong>النتيجة:</strong> <code>" + str(data['result']) + "</code></p>"
             
             if 'solutions' in data:
-                html += f"<p><strong>الحلول:</strong> {', '.join(data['solutions'])}</p>"
+                base_html += "<p><strong>الحلول:</strong> " + ', '.join(data['solutions']) + "</p>"
             
-            html += "</div>"
+            base_html += "</div>"
         else:
-            html += f"""
+            base_html += """
                 <div class="result-card error-result">
                     <h3>❌ خطأ رياضي</h3>
-                    <p>{data.get('error', 'خطأ غير محدد')}</p>
-                </div>
-            """
+                    <p>""" + data.get('error', 'خطأ غير محدد') + """</p>
+                </div>"""
     
     elif mode.startswith("smart_ai"):
-        # نتائج الذكاء الاصطناعي
-        html += f"""
+        ai_answer = data.get('answer', '').replace('\n', '<br>')
+        base_html += """
             <div class="result-card ai-result">
                 <h3>🤖 إجابة ذكية</h3>
                 <div style="line-height: 1.6; margin-top: 15px;">
-                    {data.get('answer', '').replace('\n', '<br>')}
+                    """ + ai_answer + """
                 </div>
-            </div>
-        """
+            </div>"""
     
     elif mode == "images":
-        # نتائج الصور
         images = data.get('images', [])
         if images:
-            html += f"""
+            base_html += """
                 <div class="result-card">
-                    <h3>🖼️ نتائج الصور ({len(images)} صورة)</h3>
-                    <div class="image-grid">
-            """
+                    <h3>🖼️ نتائج الصور (""" + str(len(images)) + """ صورة)</h3>
+                    <div class="image-grid">"""
             
-            for img in images[:12]:  # أقصى 12 صورة
-                html += f"""
+            for img in images[:12]:
+                img_thumbnail = img.get('thumbnail', img.get('image', ''))
+                img_title = img.get('title', '')
+                img_title_short = truncate_text(img_title, 50)
+                base_html += """
                     <div class="image-card">
-                        <img src="{img.get('thumbnail', img.get('image', ''))}" 
-                             alt="{img.get('title', '')}" loading="lazy">
-                        <div class="title">{truncate_text(img.get('title', ''), 50)}</div>
-                    </div>
-                """
+                        <img src=\"""" + img_thumbnail + """\" 
+                             alt=\"""" + img_title + """\" loading="lazy">
+                        <div class="title">""" + img_title_short + """</div>
+                    </div>"""
             
-            html += "</div></div>"
+            base_html += "</div></div>"
     
     else:
-        # نتائج البحث
-        html += f"""
+        search_summary = data.get('ai_summary', data.get('summary', 'لا توجد نتائج')).replace('\n', '<br>')
+        base_html += """
             <div class="result-card search-result">
                 <h3>🔍 ملخص البحث</h3>
                 <div style="line-height: 1.6; margin-top: 15px;">
-                    {data.get('ai_summary', data.get('summary', 'لا توجد نتائج')).replace('\n', '<br>')}
+                    """ + search_summary + """
                 </div>
-            </div>
-        """
+            </div>"""
         
-        # النتائج التفصيلية
         results = data.get('results', [])
         if results:
-            html += "<h3>🌐 مصادر إضافية:</h3>"
+            base_html += "<h3>🌐 مصادر إضافية:</h3>"
             for result in results[:5]:
-                html += f"""
+                base_html += """
                     <div class="result-card">
-                        <h4><a href="{result.get('url', '#')}" target="_blank">{result.get('title', '')}</a></h4>
-                        <p>{result.get('snippet', '')}</p>
-                    </div>
-                """
+                        <h4><a href=\"""" + result.get('url', '#') + """\" target="_blank">""" + result.get('title', '') + """</a></h4>
+                        <p>""" + result.get('snippet', '') + """</p>
+                    </div>"""
     
-    html += """
+    base_html += """
             </div>
         </div>
     </body>
-    </html>
-    """
+    </html>"""
     
-    return html
+    return base_html
 
 @app.get("/health")
 async def health_check():
