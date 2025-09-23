@@ -21,6 +21,20 @@ app = FastAPI(
     version="1.0.0"
 )
 
+@app.get("/health")
+async def health():
+    """Health check endpoint"""
+    return {
+        "status": "healthy",
+        "app": "Bassam Smart AI",
+        "ai_available": ai_engine.is_gemini_available(),
+        "services": {
+            "search": True,
+            "math": True,
+            "ai": ai_engine.is_gemini_available()
+        }
+    }
+
 @app.get("/", response_class=HTMLResponse)
 async def home():
     """الصفحة الرئيسية"""
@@ -489,18 +503,6 @@ def generate_result_html(result: dict) -> str:
     
     return base_html
 
-@app.get("/health")
-async def health_check():
-    """فحص صحة التطبيق"""
-    return {
-        "status": "healthy",
-        "ai_available": ai_engine.is_gemini_available(),
-        "services": {
-            "search": True,
-            "math": True,
-            "ai": ai_engine.is_gemini_available()
-        }
-    }
 
 if __name__ == "__main__":
     import uvicorn
