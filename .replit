@@ -14,7 +14,7 @@ integrations = ["python_gemini:1.0.0"]
 
 [nix]
 channel = "stable-25_05"
-packages = ["glibcLocales", "rapidfuzz-cpp", "taskflow", "xcodebuild", "zlib"]
+packages = ["cairo", "ffmpeg-full", "freetype", "ghostscript", "glibcLocales", "gobject-introspection", "gtk3", "pkg-config", "qhull", "rapidfuzz-cpp", "taskflow", "tcl", "tk", "xcodebuild", "zlib"]
 
 [workflows]
 runButton = "Project"
