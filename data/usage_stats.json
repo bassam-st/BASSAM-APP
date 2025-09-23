@@ -1,0 +1,12 @@
+{
+  "daily_limits": {
+    "gemini_requests": 0,
+    "gemini_tokens": 0,
+    "last_reset": "2025-09-23"
+  },
+  "monthly_stats": {
+    "render_build_minutes": 0,
+    "render_bandwidth_gb": 0,
+    "last_reset": "2025-09"
+  }
+}

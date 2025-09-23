@@ -72,14 +72,28 @@ class AdvancedIntelligence:
             اربط الأسباب بالنتائج وقدم السياق الكامل.""",
             
             'location': """أنت جغرافي خبير متخصص في المعلومات المكانية.
-            حدد المكان بدقة مع وصف الموقع والمعلومات الجغرافية المهمة.
-            اذكر المناطق المحيطة والخصائص الجغرافية.""",
+            حدد المكان بدقة مع وصف الموقع والمعلومات الجغرافية المهمة.""",
+            
+            'time': """أنت مؤرخ وخبير زمني متخصص في التواريخ والأحداث.
+            حدد الوقت والتواريخ بدقة مع السياق التاريخي المناسب.""",
+            
+            'person': """أنت خبير في السير والتراجم متخصص في الشخصيات.
+            قدم معلومات شاملة عن الأشخاص مع إنجازاتهم وسياقهم التاريخي.""",
+            
+            'quantity': """أنت محلل إحصائي دقيق متخصص في الأرقام والكميات.
+            قدم الأرقام الدقيقة مع التحليل والمقارنات المناسبة.""",
+            
+            'yes_no': """أنت خبير تحليلي يقدم إجابات واضحة ومؤكدة.
+            أجب بوضوح مع تقديم الأدلة والمبررات المناسبة.""",
+            
+            'comparison': """أنت محلل مقارن متخصص في دراسة الفروق والتشابهات.
+            قارن بعمق مع إبراز نقاط القوة والضعف والاختلافات الجوهرية.""",
             
             'mathematical': """أنت أستاذ رياضيات خبير ومتخصص في تعليم الرياضيات.
             اشرح الحل خطوة بخطوة بطريقة واضحة ومفصلة.
             استخدم التبسيط والتوضيح في كل خطوة.""",
             
-            'general': """أنت بسام الذكي 🤖، مساعد ذكي عربي متقدم مع قدرات عاطفية ولغوية عالية.
+            'general': """أنت بسام الذكي، مساعد ذكي عربي متقدم مع قدرات عاطفية ولغوية عالية.
             قدم إجابة متكاملة ومفصلة وشاملة تغطي جوانب الموضوع المختلفة."""
         }
     
@@ -97,6 +111,154 @@ class AdvancedIntelligence:
                     return q_type
         
         return 'general'
+    
+    def analyze_question(self, question: str) -> Dict[str, Any]:
+        """تحليل شامل للسؤال يشمل النوع والمشاعر والسياق"""
+        if not question.strip():
+            return {
+                'question_type': 'general',
+                'emotional_context': {'primary_emotion': 'neutral', 'confidence': 0.5},
+                'complexity_level': 'simple',
+                'requires_research': False
+            }
+        
+        # كشف نوع السؤال
+        question_type = self.detect_question_type(question)
+        
+        # كشف المشاعر
+        emotion, confidence = self.detect_emotion(question)
+        emotional_context = {
+            'primary_emotion': emotion,
+            'confidence': confidence,
+            'emotional_indicators': self._extract_emotional_indicators(question)
+        }
+        
+        # تحديد مستوى التعقيد
+        complexity_level = self._assess_complexity(question, question_type)
+        
+        # تحديد ما إذا كان يحتاج بحث
+        requires_research = self._needs_research(question, question_type)
+        
+        # تحليل متقدم إضافي
+        linguistic_features = self._analyze_linguistic_features(question)
+        
+        return {
+            'question_type': question_type,
+            'emotional_context': emotional_context,
+            'complexity_level': complexity_level,
+            'requires_research': requires_research,
+            'linguistic_features': linguistic_features,
+            'recommended_approach': self._recommend_approach(question_type, emotion),
+            'expected_response_length': self._estimate_response_length(complexity_level, question_type)
+        }
+    
+    def _extract_emotional_indicators(self, text: str) -> List[str]:
+        """استخراج المؤشرات العاطفية من النص"""
+        indicators = []
+        text_lower = text.lower()
+        
+        for emotion, patterns in self.emotion_patterns.items():
+            for pattern in patterns:
+                if pattern in text_lower:
+                    indicators.append(f"{emotion}:{pattern}")
+        
+        return indicators
+    
+    def _assess_complexity(self, question: str, question_type: str) -> str:
+        """تقييم مستوى تعقيد السؤال"""
+        # عوامل التعقيد
+        complexity_score = 0
+        
+        # طول السؤال
+        if len(question) > 100:
+            complexity_score += 2
+        elif len(question) > 50:
+            complexity_score += 1
+        
+        # نوع السؤال
+        complex_types = ['mathematical', 'comparison', 'reason', 'explanation']
+        if question_type in complex_types:
+            complexity_score += 2
+        
+        # وجود مصطلحات تقنية أو علمية
+        technical_indicators = ['معادلة', 'نظرية', 'قانون', 'مبدأ', 'تحليل', 'دراسة']
+        for indicator in technical_indicators:
+            if indicator in question:
+                complexity_score += 1
+        
+        # أسئلة متعددة الأجزاء
+        if '؟' in question and question.count('؟') > 1:
+            complexity_score += 1
+        
+        if complexity_score >= 4:
+            return 'complex'
+        elif complexity_score >= 2:
+            return 'moderate'
+        else:
+            return 'simple'
+    
+    def _needs_research(self, question: str, question_type: str) -> bool:
+        """تحديد ما إذا كان السؤال يحتاج بحث خارجي"""
+        research_indicators = [
+            'آخر', 'أحدث', 'جديد', 'حالياً', 'الآن', 'اليوم', 
+            'أسعار', 'سعر', 'إحصائيات', 'أرقام حديثة'
+        ]
+        
+        for indicator in research_indicators:
+            if indicator in question:
+                return True
+        
+        # أنواع أسئلة تحتاج عادة لبحث
+        research_types = ['location', 'time', 'person', 'quantity']
+        return question_type in research_types
+    
+    def _analyze_linguistic_features(self, question: str) -> Dict[str, Any]:
+        """تحليل الخصائص اللغوية للسؤال"""
+        return {
+            'is_arabic': is_arabic(question),
+            'word_count': len(question.split()),
+            'has_numbers': bool(re.search(r'\d', question)),
+            'has_symbols': bool(re.search(r'[+\-*/=<>%]', question)),
+            'question_marks': question.count('؟') + question.count('?'),
+            'formality_level': self._assess_formality(question)
+        }
+    
+    def _assess_formality(self, text: str) -> str:
+        """تقييم مستوى الرسمية في النص"""
+        formal_indicators = ['يرجى', 'من فضلك', 'لو سمحت', 'نرجو', 'نتمنى']
+        informal_indicators = ['ازاي', 'ايه', 'عايز', 'ممكن']
+        
+        formal_count = sum(1 for indicator in formal_indicators if indicator in text)
+        informal_count = sum(1 for indicator in informal_indicators if indicator in text)
+        
+        if formal_count > informal_count:
+            return 'formal'
+        elif informal_count > formal_count:
+            return 'informal'
+        else:
+            return 'neutral'
+    
+    def _recommend_approach(self, question_type: str, emotion: str) -> str:
+        """اقتراح أفضل منهج للإجابة"""
+        if emotion == 'confusion':
+            return 'step_by_step_simple'
+        elif emotion == 'help_request':
+            return 'supportive_detailed'
+        elif question_type == 'mathematical':
+            return 'structured_solution'
+        elif question_type in ['definition', 'explanation']:
+            return 'comprehensive_educational'
+        else:
+            return 'balanced_informative'
+    
+    def _estimate_response_length(self, complexity: str, question_type: str) -> str:
+        """تقدير طول الإجابة المناسب"""
+        if complexity == 'complex' or question_type == 'mathematical':
+            return 'detailed'  # 300+ كلمة
+        elif complexity == 'moderate':
+            return 'medium'    # 150-300 كلمة
+        else:
+            return 'concise'   # 50-150 كلمة
     
     def detect_emotion(self, text: str) -> Tuple[str, float]:
         """كشف المشاعر مع درجة الثقة"""

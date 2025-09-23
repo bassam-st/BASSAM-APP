@@ -12,6 +12,7 @@ try:
     from core.multi_llm_engine import multi_llm_engine
     from core.free_architecture import free_architecture
     from core.advanced_intelligence import AdvancedIntelligence
+    from core.scientific_libraries import scientific_libraries
     from core.utils import is_arabic, normalize_text
     print("✅ تم تحميل جميع وحدات الذكاء الاصطناعي المحدثة")
 except ImportError as e:
@@ -24,7 +25,8 @@ class EnhancedAIEngine:
         self.intelligence = AdvancedIntelligence()
         self.multi_llm = multi_llm_engine
         self.architecture = free_architecture
-        print("🤖 تم تهيئة محرك الذكاء الاصطناعي المحدث")
+        self.scientific = scientific_libraries
+        print("تم تهيئة محرك الذكاء الاصطناعي المحدث")
         
         # إحصائيات الاستخدام
         self.session_stats = {
@@ -131,7 +133,7 @@ class EnhancedAIEngine:
                 'error': str(e)
             }
     
-    def _build_enhanced_context(self, question: str, analysis: Dict[str, Any], context: str = "") -> str:
+    def _build_enhanced_context(self, question: str, analysis: Dict[str, Any], context: str = "", scientific_context: Dict[str, Any] = None) -> str:
         """بناء سياق محسن للسؤال"""
         
         # السياق الأساسي
@@ -153,6 +155,19 @@ class EnhancedAIEngine:
         # إضافة السياق الإضافي إن وجد
         if context:
             enhanced_context += f"السياق الإضافي: {context}\n\n"
+        
+        # إضافة السياق العلمي إن وجد
+        if scientific_context and scientific_context.get('field_name'):
+            enhanced_context += f"المجال العلمي: {scientific_context['field_name']}\n"
+            if scientific_context.get('relevant_formulas'):
+                enhanced_context += "المعادلات ذات الصلة:\n"
+                for formula in scientific_context['relevant_formulas']:
+                    enhanced_context += f"- {formula['name']}: {formula['formula']}\n"
+            if scientific_context.get('relevant_constants'):
+                enhanced_context += "الثوابت المهمة:\n"
+                for const in scientific_context['relevant_constants']:
+                    enhanced_context += f"- {const['name']}: {const['value']}\n"
+            enhanced_context += "\n"
         
         # إضافة السؤال
         enhanced_context += f"السؤال: {question}\n\nالإجابة:"

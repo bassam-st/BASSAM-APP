@@ -10,7 +10,7 @@ language = "python"
 
 [agent]
 expertMode = true
-integrations = ["python_gemini:1.0.0", "python_anthropic:1.0.0", "perplexity_v0:1.0.0"]
+integrations = ["python_gemini:1.0.0", "python_anthropic:1.0.0", "perplexity_v0:1.0.0", "python_openai:1.0.0"]
 
 [nix]
 channel = "stable-25_05"

@@ -15,6 +15,7 @@ from core.ai_engine import ai_engine
 from core.enhanced_ai_engine import enhanced_ai_engine
 from core.advanced_intelligence import AdvancedIntelligence
 from core.free_architecture import free_architecture
+from core.scientific_libraries import scientific_libraries
 
 # إنشاء مثيل من الذكاء المتقدم
 advanced_intelligence = AdvancedIntelligence()

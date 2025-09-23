@@ -39,7 +39,25 @@ class MultiLLMEngine:
     def _initialize_models(self) -> List[LLMModel]:
         """تهيئة قائمة النماذج المجانية المتاحة"""
         return [
-            # النماذج المجانية الرئيسية
+            # أذكى النماذج المجانية والمتقدمة
+            LLMModel(
+                name="GPT-5",  # النموذج الأحدث من OpenAI
+                provider="openai",
+                api_key_env="OPENAI_API_KEY",
+                cost_tier=2,
+                quality_score=10,
+                max_tokens=8192,
+                supports_arabic=True
+            ),
+            LLMModel(
+                name="Claude Sonnet-4",  # النموذج الأحدث من Anthropic
+                provider="anthropic",
+                api_key_env="ANTHROPIC_API_KEY",
+                cost_tier=2,
+                quality_score=10,
+                max_tokens=8192,
+                supports_arabic=True
+            ),
             LLMModel(
                 name="Gemini 1.5 Flash",
                 provider="google",
@@ -189,7 +207,9 @@ class MultiLLMEngine:
         
         full_prompt = f"{context}\n\n{prompt}" if context else prompt
         
-        if model.provider == "google":
+        if model.provider == "openai":
+            return await self._call_openai(model, full_prompt, max_tokens)
+        elif model.provider == "google":
             return await self._call_gemini(model, full_prompt, max_tokens)
         elif model.provider == "anthropic":
             return await self._call_anthropic(model, full_prompt, max_tokens)
@@ -223,16 +243,46 @@ class MultiLLMEngine:
         except Exception as e:
             raise Exception(f"Gemini error: {e}")
     
+    async def _call_openai(self, model: LLMModel, prompt: str, max_tokens: int) -> Dict[str, Any]:
+        """استدعاء GPT-5 الأحدث"""
+        try:
+            from openai import OpenAI
+            
+            api_key = os.getenv(model.api_key_env)
+            client = OpenAI(api_key=api_key)
+            
+            # النموذج الأحدث GPT-5 تم إصداره في 7 أغسطس 2025
+            model_name = "gpt-5" if "GPT-5" in model.name else "gpt-4"
+            
+            response = client.chat.completions.create(
+                model=model_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens
+            )
+            
+            return {
+                'success': True,
+                'response': response.choices[0].message.content,
+                'model': model.name,
+                'provider': model.provider,
+                'tokens_used': response.usage.total_tokens if response.usage else 0
+            }
+        except Exception as e:
+            raise Exception(f"OpenAI error: {e}")
+    
     async def _call_anthropic(self, model: LLMModel, prompt: str, max_tokens: int) -> Dict[str, Any]:
-        """استدعاء Claude"""
+        """استدعاء Claude Sonnet-4 الأحدث"""
         try:
             import anthropic
             
             api_key = os.getenv(model.api_key_env)
             client = anthropic.Anthropic(api_key=api_key)
             
+            # النموذج الأحدث Claude Sonnet-4 تم إصداره في 14 مايو 2025
+            model_name = "claude-sonnet-4-20250514" if "Sonnet-4" in model.name else "claude-3-haiku-20240307"
+            
             message = client.messages.create(
-                model="claude-3-haiku-20240307",
+                model=model_name,
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}]
             )
