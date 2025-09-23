@@ -26,7 +26,7 @@ def rank(matrix):
     except AttributeError:
         return len(matrix)
 
-from core.utils import convert_arabic_numbers
+from core.utils import convert_arabic_numbers, is_arabic
 
 # رموز x و y للاستخدام في العمليات
 x, y = symbols('x y')
