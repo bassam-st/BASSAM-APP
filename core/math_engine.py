@@ -18,14 +18,13 @@ from sympy import (
     ln, log, pi, lambdify
 )
 
-try:
-    from sympy.matrices.dense import matrix_rank as rank
-except ImportError:
+# وظائف المصفوفات - تم تعطيلها مؤقتاً لتجنب مشاكل الاستيراد
+def rank(matrix):
+    """حساب رتبة المصفوفة"""
     try:
-        from sympy import rank
-    except ImportError:
-        def rank(matrix):
-            return matrix.rank()
+        return matrix.rank()
+    except AttributeError:
+        return len(matrix)
 
 from core.utils import convert_arabic_numbers
 
