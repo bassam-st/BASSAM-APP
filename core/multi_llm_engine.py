@@ -41,7 +41,7 @@ class MultiLLMEngine:
         return [
             # أذكى النماذج المجانية والمتقدمة
             LLMModel(
-                name="GPT-5",  # النموذج الأحدث من OpenAI
+                name="GPT-4o",  # أحدث نموذج متاح من OpenAI 
                 provider="openai",
                 api_key_env="OPENAI_API_KEY",
                 cost_tier=2,
@@ -50,7 +50,7 @@ class MultiLLMEngine:
                 supports_arabic=True
             ),
             LLMModel(
-                name="Claude Sonnet-4",  # النموذج الأحدث من Anthropic
+                name="Claude-3.5-Sonnet",  # أحدث نموذج متاح من Anthropic
                 provider="anthropic",
                 api_key_env="ANTHROPIC_API_KEY",
                 cost_tier=2,
@@ -251,13 +251,14 @@ class MultiLLMEngine:
             api_key = os.getenv(model.api_key_env)
             client = OpenAI(api_key=api_key)
             
-            # النموذج الأحدث GPT-5 تم إصداره في 7 أغسطس 2025
-            model_name = "gpt-5" if "GPT-5" in model.name else "gpt-4"
+            # أحدث نماذج OpenAI المتاحة
+            model_name = "gpt-4o" if "GPT-4o" in model.name else "gpt-4"
             
             response = client.chat.completions.create(
                 model=model_name,
                 messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                timeout=30  # إضافة timeout للطلبات
             )
             
             return {
@@ -278,13 +279,14 @@ class MultiLLMEngine:
             api_key = os.getenv(model.api_key_env)
             client = anthropic.Anthropic(api_key=api_key)
             
-            # النموذج الأحدث Claude Sonnet-4 تم إصداره في 14 مايو 2025
-            model_name = "claude-sonnet-4-20250514" if "Sonnet-4" in model.name else "claude-3-haiku-20240307"
+            # أحدث نماذج Anthropic المتاحة  
+            model_name = "claude-3-5-sonnet-20240620" if "3.5-Sonnet" in model.name else "claude-3-haiku-20240307"
             
             message = client.messages.create(
                 model=model_name,
                 max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}]
+                messages=[{"role": "user", "content": prompt}],
+                timeout=30  # إضافة timeout للطلبات
             )
             
             return {

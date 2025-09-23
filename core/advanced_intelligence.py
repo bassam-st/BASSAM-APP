@@ -260,6 +260,70 @@ class AdvancedIntelligence:
         else:
             return 'concise'   # 50-150 كلمة
     
+    def enhance_response(self, response: str, analysis: Dict[str, Any], original_question: str) -> str:
+        """تحسين وتهذيب الرد النهائي"""
+        if not response or not response.strip():
+            return "عذراً، لم أتمكن من توليد إجابة مناسبة."
+        
+        enhanced = response.strip()
+        
+        # إضافة مقدمة عاطفية إذا لزم الأمر
+        emotion = analysis.get('emotional_context', {}).get('primary_emotion', 'neutral')
+        if emotion == 'confusion':
+            enhanced = f"أفهم أن الموضوع قد يبدو معقداً، دعني أوضح الأمر:\n\n{enhanced}"
+        elif emotion == 'help_request':
+            enhanced = f"بكل سرور سأساعدك في هذا الأمر:\n\n{enhanced}"
+        elif emotion == 'gratitude':
+            enhanced = f"شكراً لثقتك بي، إليك المعلومات المطلوبة:\n\n{enhanced}"
+        
+        # إضافة سؤال متابعة مناسب
+        question_type = analysis.get('question_type', 'general')
+        follow_up = self._generate_follow_up_question(question_type, original_question)
+        
+        if follow_up:
+            enhanced += f"\n\n💡 **سؤال للمتابعة:** {follow_up}"
+        
+        return enhanced
+    
+    def _generate_follow_up_question(self, question_type: str, original_question: str) -> str:
+        """توليد سؤال متابعة مناسب"""
+        follow_ups = {
+            'definition': [
+                "هل تريد أمثلة عملية أو تطبيقات لهذا المفهوم؟",
+                "أم تفضل معرفة المزيد عن استخداماته العملية؟"
+            ],
+            'explanation': [
+                "هل تريد شرحاً أكثر تفصيلاً لأي نقطة معينة؟",
+                "أم تحتاج أمثلة إضافية للتوضيح؟"
+            ],
+            'mathematical': [
+                "هل تريد رؤية طرق حل أخرى لهذه المسألة؟",
+                "أم تحتاج شرحاً أكثر تفصيلاً لأي خطوة؟"
+            ],
+            'comparison': [
+                "هل تريد مقارنة تفصيلية أكثر لجوانب معينة؟",
+                "أم تفضل أمثلة عملية للفروق المذكورة؟"
+            ],
+            'reason': [
+                "هل تريد معرفة عوامل أخرى قد تؤثر على هذا الأمر؟",
+                "أم تحتاج أمثلة تاريخية أو حديثة؟"
+            ]
+        }
+        
+        if question_type in follow_ups:
+            import random
+            return random.choice(follow_ups[question_type])
+        
+        # أسئلة عامة للمتابعة
+        general_follow_ups = [
+            "هل تحتاج توضيحاً إضافياً لأي نقطة؟",
+            "أم تريد معرفة المزيد حول موضوع ذي صلة؟",
+            "هل هناك جانب آخر تود استكشافه؟"
+        ]
+        
+        import random
+        return random.choice(general_follow_ups)
+    
     def detect_emotion(self, text: str) -> Tuple[str, float]:
         """كشف المشاعر مع درجة الثقة"""
         text_lower = text.lower().strip()
