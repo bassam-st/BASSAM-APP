@@ -18,3 +18,5 @@ diskcache>=5.6.3
 fpdf2>=2.7.9
 pyarabic>=0.6.0
 deep-translator==1.11.4
+anthropic>=0.68.0
+asyncio-timeout>=4.0.0

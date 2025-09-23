@@ -22,6 +22,8 @@ except Exception as e:
 
 from core.utils import is_arabic, normalize_text
 from core.advanced_intelligence import AdvancedIntelligence
+from core.multi_llm_engine import multi_llm_engine
+from core.free_architecture import free_architecture
 
 class AIEngine:
     def __init__(self):

@@ -12,7 +12,9 @@ import os
 from core.search import search_engine
 from core.math_engine import math_engine
 from core.ai_engine import ai_engine
+from core.enhanced_ai_engine import enhanced_ai_engine
 from core.advanced_intelligence import AdvancedIntelligence
+from core.free_architecture import free_architecture
 
 # إنشاء مثيل من الذكاء المتقدم
 advanced_intelligence = AdvancedIntelligence()
@@ -27,16 +29,26 @@ app = FastAPI(
 
 @app.get("/health")
 async def health():
-    """Health check endpoint"""
+    """Health check endpoint with comprehensive status"""
+    system_status = enhanced_ai_engine.get_system_status()
+    
     return {
         "status": "healthy",
-        "app": "Bassam Smart AI",
-        "ai_available": ai_engine.is_gemini_available(),
+        "app": "Bassam Smart AI - Enhanced Multi-LLM",
+        "version": "2.0.0",
+        "architecture": "Free-First",
+        "ai_available": enhanced_ai_engine.is_available(),
         "services": {
             "search": True,
             "math": True,
-            "ai": ai_engine.is_gemini_available()
-        }
+            "ai": enhanced_ai_engine.is_available(),
+            "multi_llm": True,
+            "free_architecture": True
+        },
+        "models": system_status['models'],
+        "session": system_status['session'],
+        "architecture_health": system_status['architecture'],
+        "system_healthy": system_status['system_healthy']
     }
 
 @app.get("/", response_class=HTMLResponse)
@@ -291,8 +303,8 @@ async def search(query: str = Form(...), mode: str = Form("smart")):
                 }
                 
             else:
-                # سؤال عام - استخدام الذكاء الاصطناعي أولاً
-                ai_result = ai_engine.answer_question(query)
+                # سؤال عام - استخدام النظام الذكي المحدث
+                ai_result = await enhanced_ai_engine.answer_question(query)
                 
                 if ai_result and ai_result.get('success'):
                     result = {
@@ -301,13 +313,13 @@ async def search(query: str = Form(...), mode: str = Form("smart")):
                         "result": ai_result
                     }
                 else:
-                    # الاحتياط - البحث والتلخيص
+                    # الاحتياط - البحث والتلخيص المحسن
                     search_result = search_engine.search_and_summarize(query)
-                    if ai_engine.is_gemini_available():
-                        # تحسين النتائج بالذكاء الاصطناعي
-                        enhanced = ai_engine.smart_search_enhancement(query, search_result.get('results', []))
-                        if enhanced:
-                            search_result['ai_summary'] = enhanced
+                    
+                    # تحسين النتائج بالذكاء الاصطناعي المتعدد
+                    enhanced = await enhanced_ai_engine.smart_search_enhancement(query, search_result.get('results', []))
+                    if enhanced:
+                        search_result['ai_summary'] = enhanced
                     
                     result = {
                         "mode": "smart_search",
