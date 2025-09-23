@@ -57,8 +57,14 @@ class EnhancedAIEngine:
             # تحليل السؤال بالذكاء المتقدم
             analysis = self.intelligence.analyze_question(question)
             
-            # بناء سياق محسن
-            enhanced_context = self._build_enhanced_context(question, analysis, context)
+            # فحص المجال العلمي
+            scientific_field = self.scientific.detect_scientific_field(question)
+            scientific_context = {}
+            if scientific_field:
+                scientific_context = self.scientific.get_scientific_context(scientific_field, question)
+            
+            # بناء سياق محسن مع المعرفة العلمية
+            enhanced_context = self._build_enhanced_context(question, analysis, context, scientific_context)
             
             start_time = time.time()
             
