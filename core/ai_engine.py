@@ -5,7 +5,7 @@
 
 import os
 import re
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 try:
     import google.generativeai as genai
@@ -15,12 +15,14 @@ except ImportError:
     genai = None
 
 from core.utils import is_arabic, normalize_text
+from core.advanced_intelligence import AdvancedIntelligence
 
 class AIEngine:
     def __init__(self):
         self.api_key = os.getenv("GEMINI_API_KEY")
         self.model = None
         self.is_available = False
+        self.intelligence = AdvancedIntelligence()  # إضافة الذكاء المتقدم
         
         if GENAI_AVAILABLE and self.api_key:
             try:
@@ -67,30 +69,56 @@ class AIEngine:
             return None
     
     def answer_question(self, question: str) -> Optional[Dict[str, Any]]:
-        """الإجابة على الأسئلة العامة"""
+        """الإجابة على الأسئلة العامة مع الذكاء المتقدم"""
         if not self.is_available:
             return None
         
         try:
-            # تحضير السياق للأسئلة العربية
-            if is_arabic(question):
-                context = """أنت مساعد ذكي يتحدث العربية ويساعد المستخدمين العرب.
-                قدم إجابات دقيقة ومفيدة ومناسبة ثقافياً.
-                استخدم اللغة العربية في الرد واجعله واضحاً ومفهوماً."""
+            # كشف نوع السؤال والمشاعر
+            question_type = self.intelligence.detect_question_type(question)
+            emotion, confidence = self.intelligence.detect_emotion(question)
+            
+            # إنشاء سياق محسن
+            enhanced_context = self.intelligence.create_enhanced_context(question, question_type, emotion)
+            
+            # إنشاء رد عاطفي
+            emotional_intro = self.intelligence.generate_emotional_response(emotion, confidence)
+            
+            # تحضير السؤال مع المقدمة العاطفية
+            if emotional_intro:
+                full_question = f"{emotional_intro}\n\n{question}"
             else:
-                context = """You are a helpful AI assistant.
-                Provide accurate, useful, and culturally appropriate answers.
-                Be clear and concise in your responses."""
+                full_question = question
+            
+            # تحضير النص النهائي
+            prompt = f"""
+نوع السؤال: {question_type}
+السؤال: {full_question}
+
+أجب بشكل مفصل وذكي ومفيد. اجعل إجابتك شاملة وغنية بالمعلومات مع أمثلة وتوضيحات.
+"""
             
             # توليد الرد
-            response = self.generate_response(question, context)
+            response = self.generate_response(prompt, enhanced_context)
             
             if response:
+                # تحسين النص العربي
+                enhanced_response = self.intelligence.enhance_arabic_text(response)
+                
+                # إضافة أسئلة متابعة
+                follow_up_questions = self.intelligence.generate_follow_up_questions(
+                    question, question_type
+                )
+                
                 return {
                     'success': True,
                     'question': question,
-                    'answer': response,
-                    'source': 'Gemini AI'
+                    'answer': enhanced_response,
+                    'question_type': question_type,
+                    'emotion_detected': emotion,
+                    'confidence': confidence,
+                    'follow_up_questions': follow_up_questions,
+                    'source': 'بسام الذكي - Gemini AI المتقدم'
                 }
             
             return None
@@ -99,22 +127,55 @@ class AIEngine:
             print(f"خطأ في الإجابة على السؤال: {e}")
             return None
     
-    def explain_math_solution(self, problem: str, solution: str) -> Optional[str]:
-        """شرح الحلول الرياضية"""
+    def explain_math_solution(self, problem: str, solution: str, detailed_steps: Optional[List[str]] = None) -> Optional[str]:
+        """شرح الحلول الرياضية مع تفاصيل متقدمة"""
         if not self.is_available:
             return None
         
         try:
-            prompt = f"""
-            اشرح بطريقة بسيطة ومفهومة كيفية حل هذه المسألة الرياضية:
+            # إنشاء سياق متقدم للرياضيات
+            advanced_context = self.intelligence.create_enhanced_context(problem, 'mathematical', 'help_request')
             
-            المسألة: {problem}
-            الحل: {solution}
+            # تحضير النص مع الخطوات المفصلة
+            if detailed_steps:
+                steps_text = "\n".join([f"- {step}" for step in detailed_steps])
+                prompt = f"""
+🧮 **شرح مسألة رياضية متقدم**
+
+📋 **المسألة:** {problem}
+✅ **الحل:** {solution}
+
+🔧 **الخطوات المفصلة:**
+{steps_text}
+
+📚 **مطلوب منك:**
+1. اشرح كل خطوة بطريقة تعليمية واضحة
+2. اذكر القواعد الرياضية المستخدمة 
+3. قدم نصائح وتحذيرات مهمة
+4. اقترح طرق للتحقق من الحل
+5. أعط أمثلة مشابهة للتدريب
+
+استخدم اللغة العربية الواضحة مع الرموز الرياضية المناسبة.
+                """
+            else:
+                prompt = f"""
+اشرح بطريقة تعليمية متقدمة كيفية حل هذه المسألة الرياضية:
+
+المسألة: {problem}
+الحل: {solution}
+
+قدم شرحاً شاملاً يتضمن:
+- الخطوات مرقمة وواضحة
+- القواعد الرياضية المستخدمة
+- نصائح للتذكر والتطبيق
+- طرق التحقق من صحة الحل
+                """
             
-            قدم الشرح بخطوات واضحة ومرقمة باللغة العربية.
-            """
+            explanation = self.generate_response(prompt, advanced_context)
             
-            explanation = self.generate_response(prompt)
+            if explanation:
+                return self.intelligence.enhance_arabic_text(explanation)
+            
             return explanation
             
         except Exception as e:

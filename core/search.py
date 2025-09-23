@@ -11,6 +11,7 @@ try:
 except ImportError:
     from duckduckgo_search import DDGS
 from core.utils import is_arabic, clean_html, normalize_text
+from core.advanced_intelligence import AdvancedIntelligence
 
 # استيراد مكتبات التلخيص
 try:
@@ -41,6 +42,7 @@ class SearchEngine:
             headers={"User-Agent": "BassamBot/1.0"},
             timeout=30.0
         )
+        self.intelligence = AdvancedIntelligence()  # إضافة الذكاء المتقدم
     
     def search_web(self, query: str, max_results: int = 10) -> List[Dict]:
         """البحث في الويب باستخدام DuckDuckGo"""

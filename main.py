@@ -12,6 +12,10 @@ import os
 from core.search import search_engine
 from core.math_engine import math_engine
 from core.ai_engine import ai_engine
+from core.advanced_intelligence import AdvancedIntelligence
+
+# إنشاء مثيل من الذكاء المتقدم
+advanced_intelligence = AdvancedIntelligence()
 from core.utils import is_arabic, normalize_text, truncate_text
 
 # إعداد التطبيق

@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from sympy import (
     symbols, Matrix, sympify, simplify, diff, integrate, sqrt, sin, cos, tan,
     solve, Eq, factor, expand, limit, oo, series, det, latex,
-    ln, log, pi, lambdify
+    ln, log, pi, lambdify, Add, Mul, Pow
 )
 
 # وظائف المصفوفات - تم تعطيلها مؤقتاً لتجنب مشاكل الاستيراد
@@ -103,16 +103,22 @@ class MathEngine:
             return 'evaluate'
     
     def solve_derivative(self, expr_str: str) -> Dict[str, Any]:
-        """حساب المشتق"""
+        """حساب المشتق مع شرح الخطوات"""
         try:
             expr = sympify(expr_str)
             derivative = diff(expr, x)
+            
+            # شرح خطوات المشتق
+            steps = self._explain_derivative_steps(expr, derivative)
+            detailed_explanation = self._format_derivative_explanation(expr_str, derivative, steps)
             
             return {
                 'success': True,
                 'operation': 'المشتق',
                 'original': str(expr),
                 'result': str(derivative),
+                'steps': steps,
+                'explanation': detailed_explanation,
                 'latex': latex(derivative) if hasattr(derivative, '_latex') else None
             }
         except Exception as e:
@@ -122,16 +128,22 @@ class MathEngine:
             }
     
     def solve_integral(self, expr_str: str) -> Dict[str, Any]:
-        """حساب التكامل"""
+        """حساب التكامل مع شرح الخطوات"""
         try:
             expr = sympify(expr_str)
             integral = integrate(expr, x)
+            
+            # شرح خطوات التكامل
+            steps = self._explain_integral_steps(expr, integral)
+            detailed_explanation = self._format_integral_explanation(expr_str, integral, steps)
             
             return {
                 'success': True,
                 'operation': 'التكامل',
                 'original': str(expr),
                 'result': str(integral),
+                'steps': steps,
+                'explanation': detailed_explanation,
                 'latex': latex(integral) if hasattr(integral, '_latex') else None
             }
         except Exception as e:
@@ -312,17 +324,218 @@ class MathEngine:
                 'error': f'خطأ في عمليات المصفوفات: {str(e)}'
             }
     
-    def solve_math_problem(self, query: str) -> Dict[str, Any]:
-        """حل المسائل الرياضية العامة"""
-        try:
-            # تطبيع النص
-            normalized = self.normalize_math_expression(query)
-            operation = self.detect_operation(query)
+    def _explain_derivative_steps(self, expr, derivative) -> List[str]:
+        """شرح خطوات المشتق"""
+        steps = []
+        expr_str = str(expr)
+        
+        # تحديد نوع الدالة وقواعد المشتق
+        if expr.is_polynomial():
+            steps.append("🔍 هذه دالة كثيرة حدود، سنستخدم قاعدة القوة")
             
+            # تحليل كل حد
+            terms = Add.make_args(expr)
+            for i, term in enumerate(terms, 1):
+                if term.has(x):
+                    # استخراج المعامل والأس
+                    coeff = term.as_coefficients_dict()[x**term.as_coeff_exponent(x)[1]]
+                    power = term.as_coeff_exponent(x)[1]
+                    
+                    if power == 1:
+                        steps.append(f"📝 الحد {i}: {coeff}x → المشتق: {coeff} (قاعدة: مشتق cx = c)")
+                    elif power == 0:
+                        steps.append(f"📝 الحد {i}: {coeff} → المشتق: 0 (قاعدة: مشتق الثابت = 0)")
+                    else:
+                        new_coeff = coeff * power
+                        new_power = power - 1
+                        steps.append(f"📝 الحد {i}: {coeff}x^{power} → المشتق: {new_coeff}x^{new_power} (قاعدة القوة: d/dx[x^n] = nx^(n-1))")
+        
+        elif expr.has(sin) or expr.has(cos) or expr.has(tan):
+            steps.append("🌊 تحتوي على دوال مثلثية، سنستخدم قواعد المشتقات المثلثية")
+            if expr.has(sin):
+                steps.append("📐 قاعدة: مشتق sin(x) = cos(x)")
+            if expr.has(cos):
+                steps.append("📐 قاعدة: مشتق cos(x) = -sin(x)")
+            if expr.has(tan):
+                steps.append("📐 قاعدة: مشتق tan(x) = sec²(x)")
+        
+        elif expr.has(exp) or expr.has(log):
+            steps.append("📊 تحتوي على دوال أسية أو لوغاريتمية")
+            if expr.has(exp):
+                steps.append("⚡ قاعدة: مشتق e^x = e^x")
+            if expr.has(log):
+                steps.append("📈 قاعدة: مشتق ln(x) = 1/x")
+        
+        # إضافة الحل النهائي
+        steps.append(f"✅ النتيجة النهائية: {derivative}")
+        
+        return steps
+    
+    def _explain_integral_steps(self, expr, integral) -> List[str]:
+        """شرح خطوات التكامل"""
+        steps = []
+        expr_str = str(expr)
+        
+        # تحديد نوع الدالة وقواعد التكامل
+        if expr.is_polynomial():
+            steps.append("🔍 هذه دالة كثيرة حدود، سنستخدم قاعدة القوة للتكامل")
+            
+            # تحليل كل حد
+            terms = Add.make_args(expr) if expr.is_Add else [expr]
+            for i, term in enumerate(terms, 1):
+                if term.has(x):
+                    coeff = term.as_coefficients_dict()[x**term.as_coeff_exponent(x)[1]]
+                    power = term.as_coeff_exponent(x)[1]
+                    
+                    if power == -1:
+                        steps.append(f"📝 الحد {i}: {coeff}/x → التكامل: {coeff}ln|x| (قاعدة: ∫1/x dx = ln|x|)")
+                    else:
+                        new_power = power + 1
+                        new_coeff = coeff / new_power
+                        steps.append(f"📝 الحد {i}: {coeff}x^{power} → التكامل: {new_coeff}x^{new_power} (قاعدة: ∫x^n dx = x^(n+1)/(n+1))")
+        
+        elif expr.has(sin) or expr.has(cos) or expr.has(tan):
+            steps.append("🌊 تحتوي على دوال مثلثية")
+            if expr.has(sin):
+                steps.append("📐 قاعدة: ∫sin(x) dx = -cos(x)")
+            if expr.has(cos):
+                steps.append("📐 قاعدة: ∫cos(x) dx = sin(x)")
+        
+        elif expr.has(exp):
+            steps.append("⚡ تحتوي على دوال أسية")
+            steps.append("📊 قاعدة: ∫e^x dx = e^x")
+        
+        # إضافة التذكير بثابت التكامل
+        steps.append("📌 لا تنسى إضافة ثابت التكامل C في التكامل غير المحدود")
+        steps.append(f"✅ النتيجة النهائية: {integral} + C")
+        
+        return steps
+    
+    def _format_derivative_explanation(self, original: str, result, steps: List[str]) -> str:
+        """تنسيق شرح المشتق"""
+        explanation = f"""
+🧮 **شرح مفصل لحساب المشتق**
+
+📋 **المطلوب:** إيجاد مشتق الدالة f(x) = {original}
+
+🔧 **الخطوات:**
+"""
+        
+        for i, step in enumerate(steps, 1):
+            explanation += f"{i}. {step}\n"
+        
+        explanation += f"""
+🎯 **النتيجة النهائية:**
+f'(x) = {result}
+
+💡 **نصائح للمراجعة:**
+- تأكد من تطبيق القواعد الصحيحة
+- راجع كل خطوة للتأكد من الحسابات
+- تدرب على أمثلة مشابهة
+"""
+        
+        return explanation
+    
+    def _format_integral_explanation(self, original: str, result, steps: List[str]) -> str:
+        """تنسيق شرح التكامل"""
+        explanation = f"""
+🧮 **شرح مفصل لحساب التكامل**
+
+📋 **المطلوب:** إيجاد تكامل الدالة ∫{original} dx
+
+🔧 **الخطوات:**
+"""
+        
+        for i, step in enumerate(steps, 1):
+            explanation += f"{i}. {step}\n"
+        
+        explanation += f"""
+🎯 **النتيجة النهائية:**
+∫{original} dx = {result} + C
+
+💡 **نصائح للمراجعة:**
+- تأكد من إضافة ثابت التكامل C
+- تحقق من النتيجة بحساب المشتق
+- راجع القواعد الأساسية للتكامل
+"""
+        
+        return explanation
+    
+    def extract_math_from_arabic_text(self, text: str) -> str:
+        """استخراج المعادلة الرياضية من النص العربي"""
+        import re
+        
+        # نماذج المعادلات الرياضية
+        math_patterns = [
+            r'[x-z]\^?[0-9]*[\+\-\*/]*[0-9]*[x-z]*[\+\-\*/]*[0-9]*',  # x^2+3x+1
+            r'[0-9]*[x-z][\^\+\-\*/0-9]*[x-z]*[\+\-\*/]*[0-9]*',       # 2x^2+x+5
+            r'd/dx\([^)]+\)',                                            # d/dx(...)
+            r'∫[^dx]+dx',                                               # ∫f(x)dx
+            r'[\+\-]?[0-9]*[x-z]?[\^\+\-\*/0-9x-z\(\)\s]+',            # معادلات عامة
+        ]
+        
+        # البحث عن المعادلات
+        for pattern in math_patterns:
+            matches = re.findall(pattern, text)
+            if matches:
+                return max(matches, key=len).strip()
+        
+        # البحث عن أرقام ومتغيرات
+        simple_math = re.findall(r'[0-9x\^\+\-\*/\(\)\s]+', text)
+        if simple_math:
+            return max(simple_math, key=len).strip()
+        
+        return text.strip()
+    
+    def detect_arabic_math_operation(self, text: str) -> str:
+        """كشف نوع العملية من النص العربي"""
+        text_lower = text.lower()
+        
+        if any(word in text_lower for word in ['مشتق', 'اشتقاق', 'مشق']):
+            return 'derivative'
+        elif any(word in text_lower for word in ['تكامل', 'تكميل']):
+            return 'integral'
+        elif any(word in text_lower for word in ['حل', 'حال', 'معادلة']):
+            return 'solve'
+        elif any(word in text_lower for word in ['تبسيط', 'بسط']):
+            return 'simplify'
+        elif any(word in text_lower for word in ['تحليل']):
+            return 'factor'
+        elif any(word in text_lower for word in ['توسيع', 'فك']):
+            return 'expand'
+        elif any(word in text_lower for word in ['رسم', 'ارسم', 'مخطط', 'جراف']):
+            return 'plot'
+        elif any(word in text_lower for word in ['نهاية', 'حد']):
+            return 'limit'
+        else:
+            return 'evaluate'
+    
+    def solve_math_problem(self, query: str) -> Dict[str, Any]:
+        """حل المسائل الرياضية العامة مع دعم العربية"""
+        try:
+            # استخراج المعادلة من النص
+            math_expression = self.extract_math_from_arabic_text(query)
+            
+            # كشف نوع العملية
+            if is_arabic(query):
+                operation = self.detect_arabic_math_operation(query)
+            else:
+                operation = self.detect_operation(math_expression)
+            
+            # تطبيع التعبير الرياضي
+            normalized = self.normalize_math_expression(math_expression)
+            
+            # تطبيق العملية المطلوبة
             if operation == 'derivative':
-                return self.solve_derivative(normalized)
+                result = self.solve_derivative(normalized)
+                if result.get('success'):
+                    result['original_question'] = query
+                return result
             elif operation == 'integral':
-                return self.solve_integral(normalized)
+                result = self.solve_integral(normalized)
+                if result.get('success'):
+                    result['original_question'] = query
+                return result
             elif operation == 'solve':
                 return self.solve_equation(normalized)
             elif operation == 'plot':
@@ -333,7 +546,10 @@ class MathEngine:
                 return self.evaluate_expression(normalized, operation)
             else:
                 # تقييم عام
-                return self.evaluate_expression(normalized)
+                result = self.evaluate_expression(normalized)
+                if result.get('success'):
+                    result['original_question'] = query
+                return result
                 
         except Exception as e:
             return {
