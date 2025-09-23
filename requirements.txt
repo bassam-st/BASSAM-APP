@@ -11,3 +11,6 @@ rank-bm25==0.2.2
 rapidfuzz==3.9.6
 deep-translator==1.11.4
 google-genai>=0.3.0
+rank-bm25
+rapidfuzz
+sumy

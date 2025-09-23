@@ -55,7 +55,7 @@ class SearchEngine:
             
             return results
         except Exception as e:
-            print(f"خطأ في البحث: {e}")
+            print(f"❌ خطأ في البحث: {e}")
             return []
     
     def search_images(self, query: str, max_results: int = 10) -> List[Dict]:
@@ -101,6 +101,10 @@ class SearchEngine:
             # تحديد اللغة
             language = "arabic" if is_arabic(text) else "english"
             
+            # التحقق من توفر المكتبات
+            if not (PlaintextParser and Tokenizer and LsaSummarizer and Stemmer):
+                return text[:500] + "..." if len(text) > 500 else text
+            
             # إنشاء المحلل والملخص
             parser = PlaintextParser.from_string(text, Tokenizer(language))
             stemmer = Stemmer(language)
@@ -122,6 +126,10 @@ class SearchEngine:
             return results
         
         try:
+            # التحقق من توفر مكتبة BM25
+            if not BM25Okapi:
+                return results
+                
             # تحضير النصوص للترتيب
             documents = []
             for result in results:
