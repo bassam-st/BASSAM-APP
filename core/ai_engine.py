@@ -10,9 +10,15 @@ from typing import Optional, Dict, Any, List
 try:
     import google.generativeai as genai
     GENAI_AVAILABLE = True
-except ImportError:
+    print("✅ Google Generative AI مُحمل بنجاح")
+except ImportError as e:
     GENAI_AVAILABLE = False
     genai = None
+    print(f"⚠️ Google Generative AI غير متوفر: {e}")
+except Exception as e:
+    GENAI_AVAILABLE = False
+    genai = None
+    print(f"❌ خطأ في تحميل Google Generative AI: {e}")
 
 from core.utils import is_arabic, normalize_text
 from core.advanced_intelligence import AdvancedIntelligence
