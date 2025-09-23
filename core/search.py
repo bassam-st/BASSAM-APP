@@ -46,15 +46,52 @@ class SearchEngine:
         """البحث في الويب باستخدام DuckDuckGo"""
         try:
             results = []
-            ddgs_results = self.ddgs.text(query, max_results=max_results)
-            
-            for result in ddgs_results:
-                results.append({
-                    'title': result.get('title', ''),
-                    'body': result.get('body', ''),
-                    'href': result.get('href', ''),
-                    'source': 'duckduckgo'
-                })
+            # تجربة البحث العربي أولاً
+            if is_arabic(query):
+                # إضافة كلمات مساعدة للبحث العربي
+                enhanced_query = f"{query} معلومات عربي"
+                try:
+                    ddgs_results = self.ddgs.text(enhanced_query, max_results=max_results)
+                    if ddgs_results:
+                        for result in ddgs_results:
+                            results.append({
+                                'title': result.get('title', ''),
+                                'body': result.get('body', ''),
+                                'href': result.get('href', ''),
+                                'source': 'duckduckgo'
+                            })
+                    
+                    # إذا لم نجد نتائج كافية، جرب البحث الأصلي
+                    if len(results) < 3:
+                        ddgs_results_original = self.ddgs.text(query, max_results=max_results)
+                        for result in ddgs_results_original:
+                            if not any(r['href'] == result.get('href') for r in results):
+                                results.append({
+                                    'title': result.get('title', ''),
+                                    'body': result.get('body', ''),
+                                    'href': result.get('href', ''),
+                                    'source': 'duckduckgo'
+                                })
+                except Exception:
+                    # في حالة فشل البحث المحسن، استخدم البحث الأصلي
+                    ddgs_results = self.ddgs.text(query, max_results=max_results)
+                    for result in ddgs_results:
+                        results.append({
+                            'title': result.get('title', ''),
+                            'body': result.get('body', ''),
+                            'href': result.get('href', ''),
+                            'source': 'duckduckgo'
+                        })
+            else:
+                # البحث الإنجليزي العادي
+                ddgs_results = self.ddgs.text(query, max_results=max_results)
+                for result in ddgs_results:
+                    results.append({
+                        'title': result.get('title', ''),
+                        'body': result.get('body', ''),
+                        'href': result.get('href', ''),
+                        'source': 'duckduckgo'
+                    })
             
             return results
         except Exception as e:

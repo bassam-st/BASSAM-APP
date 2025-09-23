@@ -25,7 +25,17 @@ class AIEngine:
         if GENAI_AVAILABLE and self.api_key:
             try:
                 genai.configure(api_key=self.api_key)
-                self.model = genai.GenerativeModel('gemini-pro')
+                # تجربة النماذج الحديثة المتاحة
+                try:
+                    self.model = genai.GenerativeModel('gemini-1.5-flash')
+                except:
+                    try:
+                        self.model = genai.GenerativeModel('gemini-1.5-pro')
+                    except:
+                        try:
+                            self.model = genai.GenerativeModel('gemini-pro-latest')
+                        except:
+                            self.model = genai.GenerativeModel('gemini-pro')
                 self.is_available = True
             except Exception as e:
                 print(f"خطأ في تهيئة Gemini: {e}")
