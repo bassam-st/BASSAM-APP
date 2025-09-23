@@ -297,10 +297,10 @@ async def search(query: str = Form(...), mode: str = Form("smart")):
                         "result": search_result
                     }
         
-        # إضافة HTML للعرض
-        result["html"] = generate_result_html(result)
+        # إرسال HTML مباشرة
+        html_response = generate_result_html(result)
         
-        return result
+        return HTMLResponse(content=html_response)
         
     except Exception as e:
         return JSONResponse({
