@@ -22,11 +22,10 @@ from sympy.parsing.sympy_parser import (
 # =========================
 
 _ALLOWED_LOCALS: Dict[str, Any] = {
-    # ثوابت/دوال
     "pi": pi, "E": E, "oo": oo,
     "sin": sin, "cos": cos, "tan": tan,
     "asin": asin, "acos": acos, "atan": atan,
-    "log": log, "ln": log,  # ln==log في sympy
+    "log": log, "ln": log,  # ln == log في sympy
     "exp": exp, "sqrt": sqrt, "Abs": Abs, "re": re, "im": im,
     "Rational": Rational,
 }
@@ -46,7 +45,6 @@ class MathError(Exception):
 
 
 def _detect_var(expr_text: str) -> Symbol:
-    """اختيار المتغير المناسب من النص تلقائياً."""
     for v in ("x", "y", "z"):
         if v in expr_text:
             return symbols(v)
@@ -54,7 +52,6 @@ def _detect_var(expr_text: str) -> Symbol:
 
 
 def _sympify(text: str) -> Any:
-    """تحويل نص إلى كائن Sympy بشكل آمن."""
     try:
         return sympify(text, locals=_ALLOWED_LOCALS, transformations=_TRANSFORMS, evaluate=True)
     except Exception as e:
@@ -125,11 +122,6 @@ def integrate_expr(expr_str: str, a: Optional[Union[int, float]] = None, b: Opti
 
 
 def solve_equation(eq_str: str, var: Optional[str] = None) -> Dict[str, Any]:
-    """
-    يقبل:
-      - '2*x + 1 = 5'
-      - أو عبارة تساوي صفر ضمنياً: '2*x + 1' (يفترض 2*x+1 = 0)
-    """
     v = symbols(var) if var else _detect_var(eq_str)
     if "=" in eq_str:
         left, right = eq_str.split("=", 1)
@@ -140,7 +132,6 @@ def solve_equation(eq_str: str, var: Optional[str] = None) -> Dict[str, Any]:
         equation = Eq(_sympify(eq_str), S.Zero)
 
     sol = solveset(equation, v, domain=S.Complexes)
-    # تحويل النتائج لأشكال قابلة للطباعة
     if hasattr(sol, "__iter__"):
         pretty = [str(s) for s in list(sol)]
     else:
@@ -165,7 +156,7 @@ def factor_expr(expr_str: str) -> Dict[str, Any]:
 
 
 # =========================
-# خطوات توضيحية بسيطة (اختياري)
+# خطوات توضيحية بسيطة
 # =========================
 
 def _steps_for_polynomial_eval(expr_str: str, at: float, value: Union[float, str]) -> list:
@@ -177,7 +168,6 @@ def _steps_for_polynomial_eval(expr_str: str, at: float, value: Union[float, str
 
 
 def wrap_result_with_steps(math_result: dict) -> dict:
-    """يضيف steps آليًا عندما يمكن استنتاجها."""
     res = dict(math_result or {})
     expr = str(res.get("expression", res.get("expr", "")))
     steps = res.get("steps", [])
@@ -204,15 +194,11 @@ def wrap_result_with_steps(math_result: dict) -> dict:
 
 
 # =========================
-# موجه نصي بسيط (المطلوب)
+# موجه نصي مبسّط
 # =========================
 
 def solve_math_problem(query: str):
-    """
-    موجه نصي ذكي مبسّط: يطبّع الإدخال ويميز (حل/مشتق/تكامل/تقييم).
-    """
     q = (query or "").strip()
-    # تطبيع شائع
     q = (
         q.replace("^", "**")
          .replace("×", "*")
@@ -222,21 +208,18 @@ def solve_math_problem(query: str):
          .replace("احسب الجذور", "حل")
     )
 
-    # معادلة؟
     if ("حل" in q) or ("=" in q):
         try:
             if "=" in q:
                 left, right = q.split("=", 1)
                 expr = left.split("حل")[-1].strip() + " = " + right.strip()
             else:
-                # صيغة مثل: "حل 2*x**2 + 3*x - 2"
                 core = q.split("حل")[-1].strip()
                 expr = f"{core} = 0"
             return solve_equation(expr)
         except Exception as e:
             return {"success": False, "error": f"تعذّر تفسير المعادلة: {e}"}
 
-    # مشتقة؟
     if any(k in q for k in ["مشتق", "اشتق", "deriv", "diff"]):
         expr = q
         for k in ["مشتق", "اشتق", "deriv", "diff", ":", "of"]:
@@ -244,11 +227,9 @@ def solve_math_problem(query: str):
         res = differentiate(expr.strip())
         return wrap_result_with_steps(res)
 
-    # تكامل؟
     if any(k in q for k in ["تكامل", "integral"]):
         txt = q.replace("integral", "تكامل")
         if "من" in txt and "إلى" in txt:
-            # مثال: تكامل sin(x) من 0 إلى pi
             try:
                 head, tail = txt.split("من", 1)
                 expr = head.replace("تكامل", "").strip()
@@ -258,21 +239,18 @@ def solve_math_problem(query: str):
                 res = integrate_expr(expr, a=float(a), b=float(b))
                 return wrap_result_with_steps(res)
             except Exception:
-                # محاولة تكامل غير محدد إن فشلت صيغة المحدد
                 res = integrate_expr(txt.replace("تكامل", "").strip())
                 return wrap_result_with_steps(res)
         else:
             res = integrate_expr(txt.replace("تكامل", "").strip())
             return wrap_result_with_steps(res)
 
-    # تبسيط وتحليل (اختياري)
     if any(k in q for k in ["بسّط", "بسط", "simplify"]):
         return simplify_expr(q.replace("بسّط", "").replace("بسط", "").replace("simplify", "").strip())
 
     if any(k in q for k in ["حلّل", "حلل", "factor"]):
         return factor_expr(q.replace("حلّل", "").replace("حلل", "").replace("factor", "").strip())
 
-    # افتراضي: تقييم/عرض
     res = evaluate_function(q)
     return wrap_result_with_steps(res)
 
@@ -285,7 +263,6 @@ class MathEngine:
     def solve_math_problem(self, query: str):
         return solve_math_problem(query)
 
-    # لمن يحتاج النداء المباشر للدوال:
     def evaluate(self, expr: str, at: Optional[float] = None, var: Optional[str] = None):
         return evaluate_function(expr, at=at, var=var)
 
@@ -305,5 +282,4 @@ class MathEngine:
         return factor_expr(expr)
 
 
-# هذا ما يقوم core/__init__.py باستيراده: from .math_engine import math_engine
 math_engine = MathEngine()
