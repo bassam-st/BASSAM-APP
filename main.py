@@ -3,9 +3,9 @@
 تطبيق ذكي شامل للبحث والرياضيات والذكاء الاصطناعي باللغة العربية
 """
 
-from fastapi import FastAPI, Form, Request
+from fastapi import FastAPI, Form, Request, Body, Query, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from typing import Optional
+from typing import Optional, Dict, Any
 import os
 
 # استيراد الوحدات المحلية
@@ -16,10 +16,10 @@ from core.enhanced_ai_engine import enhanced_ai_engine
 from core.advanced_intelligence import AdvancedIntelligence
 from core.free_architecture import free_architecture
 from core.scientific_libraries import scientific_libraries
+from core.utils import is_arabic, normalize_text, truncate_text
 
 # إنشاء مثيل من الذكاء المتقدم
 advanced_intelligence = AdvancedIntelligence()
-from core.utils import is_arabic, normalize_text, truncate_text
 
 # إعداد التطبيق
 app = FastAPI(
@@ -32,7 +32,6 @@ app = FastAPI(
 async def health():
     """Health check endpoint with comprehensive status"""
     system_status = enhanced_ai_engine.get_system_status()
-    
     return {
         "status": "healthy",
         "app": "Bassam Smart AI - Enhanced Multi-LLM",
@@ -46,10 +45,10 @@ async def health():
             "multi_llm": True,
             "free_architecture": True
         },
-        "models": system_status['models'],
-        "session": system_status['session'],
-        "architecture_health": system_status['architecture'],
-        "system_healthy": system_status['system_healthy']
+        "models": system_status["models"],
+        "session": system_status["session"],
+        "architecture_health": system_status["architecture"],
+        "system_healthy": system_status["system_healthy"]
     }
 
 @app.get("/", response_class=HTMLResponse)
@@ -249,105 +248,97 @@ async def home():
     </html>
     """
 
+# ------------------------------
+# [إضافة آمنة] واجهة REST للرياضيات
+# ------------------------------
+def _do_math_safely(query: str) -> Dict[str, Any]:
+    """استدعاء محرك الرياضيات الحالي كما هو مع رسائل أخطاء واضحة."""
+    if not query or not query.strip():
+        raise HTTPException(status_code=400, detail="يرجى إرسال 'query' كنص للمسألة.")
+    try:
+        result = math_engine.solve_math_problem(query)
+        if isinstance(result, dict) and "success" not in result:
+            result["success"] = True
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"خطأ أثناء الحل: {e}")
+
+@app.post("/math", response_class=JSONResponse)
+async def math_post(payload: dict = Body(...)):
+    """
+    POST /math
+    Body JSON: { "query": "مثال: حل 2*x+1=5" }
+    """
+    query = (payload or {}).get("query", "")
+    return _do_math_safely(query)
+
+@app.get("/math", response_class=JSONResponse)
+async def math_get(query: str = Query(..., description="نص المسألة، مثل: تكامل 2*x من 0 إلى 1")):
+    """
+    مثال:
+    GET /math?query=تكامل%202*x%20من%200%20إلى%201
+    """
+    return _do_math_safely(query)
+# ------------------------------
+# نهاية إضافة /math
+# ------------------------------
+
 @app.post("/search")
 async def search(query: str = Form(...), mode: str = Form("smart")):
     """معالجة طلبات البحث والحوسبة"""
-    
     if not query.strip():
-        return JSONResponse({
-            "error": "يرجى إدخال سؤال أو مسألة",
-            "query": query
-        })
-    
+        return JSONResponse({"error": "يرجى إدخال سؤال أو مسألة", "query": query})
+
     try:
-        result = {}
-        
+        result: Dict[str, Any] = {}
+
         if mode == "math":
             # وضع الرياضيات
             math_result = math_engine.solve_math_problem(query)
-            result = {
-                "mode": "math",
-                "query": query,
-                "result": math_result
-            }
-            
+            result = {"mode": "math", "query": query, "result": math_result}
+
         elif mode == "search":
             # وضع البحث
             search_result = search_engine.search_and_summarize(query)
-            result = {
-                "mode": "search",
-                "query": query,
-                "result": search_result
-            }
-            
+            result = {"mode": "search", "query": query, "result": search_result}
+
         elif mode == "images":
             # وضع البحث عن الصور
             images = search_engine.search_images(query, max_results=10)
-            result = {
-                "mode": "images",
-                "query": query,
-                "result": {"images": images}
-            }
-            
+            result = {"mode": "images", "query": query, "result": {"images": images}}
+
         else:  # mode == "smart"
             # الوضع الذكي - يحدد تلقائياً نوع الطلب
-            
-            # تحديد نوع الطلب
-            if any(keyword in query.lower() for keyword in 
-                   ['مشتق', 'تكامل', 'حل', 'ارسم', 'plot', 'diff', 'integral', 'matrix']):
-                # مسألة رياضية
+            if any(k in query.lower() for k in ['مشتق', 'تكامل', 'حل', 'ارسم', 'plot', 'diff', 'integral', 'matrix']):
                 math_result = math_engine.solve_math_problem(query)
-                result = {
-                    "mode": "smart_math",
-                    "query": query,
-                    "result": math_result
-                }
-                
+                result = {"mode": "smart_math", "query": query, "result": math_result}
             else:
                 # سؤال عام - استخدام النظام الذكي المحدث
                 ai_result = await enhanced_ai_engine.answer_question(query)
-                
                 if ai_result and ai_result.get('success'):
-                    result = {
-                        "mode": "smart_ai",
-                        "query": query,
-                        "result": ai_result
-                    }
+                    result = {"mode": "smart_ai", "query": query, "result": ai_result}
                 else:
                     # الاحتياط - البحث والتلخيص المحسن
                     search_result = search_engine.search_and_summarize(query)
-                    
-                    # تحسين النتائج بالذكاء الاصطناعي المتعدد
-                    enhanced = await enhanced_ai_engine.smart_search_enhancement(query, search_result.get('results', []))
+                    enhanced = await enhanced_ai_engine.smart_search_enhancement(
+                        query, search_result.get('results', [])
+                    )
                     if enhanced:
                         search_result['ai_summary'] = enhanced
-                    
-                    result = {
-                        "mode": "smart_search",
-                        "query": query,
-                        "result": search_result
-                    }
-        
-        # إرسال HTML مباشرة
+                    result = {"mode": "smart_search", "query": query, "result": search_result}
+
         html_response = generate_result_html(result)
-        
         return HTMLResponse(content=html_response)
-        
+
     except Exception as e:
-        return JSONResponse({
-            "error": f"حدث خطأ أثناء المعالجة: {str(e)}",
-            "query": query,
-            "mode": mode
-        })
+        return JSONResponse({"error": f"حدث خطأ أثناء المعالجة: {str(e)}", "query": query, "mode": mode})
 
 def generate_result_html(result: dict) -> str:
     """توليد HTML لعرض النتائج"""
-    
     mode = result.get("mode", "")
     query = result.get("query", "")
     data = result.get("result", {})
-    
-    # CSS و HTML الأساسي
+
     base_html = """
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -376,7 +367,7 @@ def generate_result_html(result: dict) -> str:
                 background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
                 color: white;
                 padding: 30px;
-                text-align: center;
+                text-align: center.
             }
             .content { padding: 30px; }
             .result-card {
@@ -429,30 +420,24 @@ def generate_result_html(result: dict) -> str:
                 <a href="/" class="back-btn">← العودة للبحث</a>
                 
                 <h2>السؤال: """ + query + """</h2>"""
-    
-    # معالجة النتائج
+
     if "error" in data:
         base_html += """
                 <div class="result-card error-result">
                     <h3>❌ خطأ</h3>
                     <p>""" + str(data['error']) + """</p>
                 </div>"""
-    
     elif mode.startswith("smart_math") or mode == "math":
         if data.get('success'):
             base_html += """
                 <div class="result-card math-result">
                     <h3>📊 """ + data.get('operation', 'نتيجة رياضية') + """</h3>"""
-            
             if 'image' in data:
                 base_html += '<img src="data:image/png;base64,' + data["image"] + '" style="max-width: 100%; border-radius: 10px; margin: 15px 0;">'
-            
             if 'result' in data:
                 base_html += "<p><strong>النتيجة:</strong> <code>" + str(data['result']) + "</code></p>"
-            
             if 'solutions' in data:
                 base_html += "<p><strong>الحلول:</strong> " + ', '.join(data['solutions']) + "</p>"
-            
             base_html += "</div>"
         else:
             base_html += """
@@ -460,7 +445,6 @@ def generate_result_html(result: dict) -> str:
                     <h3>❌ خطأ رياضي</h3>
                     <p>""" + data.get('error', 'خطأ غير محدد') + """</p>
                 </div>"""
-    
     elif mode.startswith("smart_ai"):
         ai_answer = data.get('answer', '').replace('\n', '<br>')
         base_html += """
@@ -470,7 +454,6 @@ def generate_result_html(result: dict) -> str:
                     """ + ai_answer + """
                 </div>
             </div>"""
-    
     elif mode == "images":
         images = data.get('images', [])
         if images:
@@ -478,7 +461,6 @@ def generate_result_html(result: dict) -> str:
                 <div class="result-card">
                     <h3>🖼️ نتائج الصور (""" + str(len(images)) + """ صورة)</h3>
                     <div class="image-grid">"""
-            
             for img in images[:12]:
                 img_thumbnail = img.get('thumbnail', img.get('image', ''))
                 img_title = img.get('title', '')
@@ -489,9 +471,7 @@ def generate_result_html(result: dict) -> str:
                              alt=\"""" + img_title + """\" loading="lazy">
                         <div class="title">""" + img_title_short + """</div>
                     </div>"""
-            
             base_html += "</div></div>"
-    
     else:
         search_summary = data.get('ai_summary', data.get('summary', 'لا توجد نتائج')).replace('\n', '<br>')
         base_html += """
@@ -501,7 +481,6 @@ def generate_result_html(result: dict) -> str:
                     """ + search_summary + """
                 </div>
             </div>"""
-        
         results = data.get('results', [])
         if results:
             base_html += "<h3>🌐 مصادر إضافية:</h3>"
@@ -511,13 +490,12 @@ def generate_result_html(result: dict) -> str:
                         <h4><a href=\"""" + result.get('url', '#') + """\" target="_blank">""" + result.get('title', '') + """</a></h4>
                         <p>""" + result.get('snippet', '') + """</p>
                     </div>"""
-    
+
     base_html += """
             </div>
         </div>
     </body>
     </html>"""
-    
     return base_html
 
 
