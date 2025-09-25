@@ -3,14 +3,14 @@
 تطبيق ذكي شامل للبحث والرياضيات والذكاء الاصطناعي باللغة العربية
 """
 
-from fastapi import FastAPI, Form, Request, Body, Query, HTTPException
+from fastapi import FastAPI, Form, Body, Query, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 import os
 
 # استيراد الوحدات المحلية
 from core.search import search_engine
-from core.math_engine import math_engine
+from core import math_engine  # <-- مهم: هكذا نتفادى ImportError
 from core.ai_engine import ai_engine
 from core.enhanced_ai_engine import enhanced_ai_engine
 from core.advanced_intelligence import AdvancedIntelligence
@@ -18,7 +18,7 @@ from core.free_architecture import free_architecture
 from core.scientific_libraries import scientific_libraries
 from core.utils import is_arabic, normalize_text, truncate_text
 
-# استيراد مسار رفع الصور (OCR)
+# راوتر رفع/حل الصورة (OCR -> Math)
 from routes_image import router as image_router
 
 # إنشاء مثيل من الذكاء المتقدم
@@ -344,11 +344,11 @@ def generate_result_html(result: dict) -> str:
         base_html += f"<p>📊 النتيجة: {data}</p>"
     elif mode == "images":
         imgs = data.get("images", [])
-        base_html += "<div>" + "".join(f"<img src='{i.get('thumbnail')}' width='150'>" for i in imgs) + "</div>"
+        base_html += "<div>" + "".join(f"<img src='{i.get('thumbnail', i.get('image',''))}' width='150' style='margin:6px'>" for i in imgs) + "</div>"
     elif mode.startswith("smart_ai"):
         base_html += f"<div>🤖 {data.get('answer')}</div>"
     else:
-        base_html += f"<div>🔍 {data.get('summary', 'لا توجد نتائج')}</div>"
+        base_html += f"<div>🔍 {data.get('ai_summary', data.get('summary', 'لا توجد نتائج'))}</div>"
 
     base_html += "</body></html>"
     return base_html
