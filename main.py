@@ -10,7 +10,7 @@ import os
 
 # استيراد الوحدات المحلية
 from core.search import search_engine
-from core import math_engine  # <-- مهم: هكذا نتفادى ImportError
+import core.math_engine as math_engine   # ✅ التعديل هنا
 from core.ai_engine import ai_engine
 from core.enhanced_ai_engine import enhanced_ai_engine
 from core.advanced_intelligence import AdvancedIntelligence
@@ -18,7 +18,7 @@ from core.free_architecture import free_architecture
 from core.scientific_libraries import scientific_libraries
 from core.utils import is_arabic, normalize_text, truncate_text
 
-# راوتر رفع/حل الصورة (OCR -> Math)
+# استيراد راوتر الصور (OCR)
 from routes_image import router as image_router
 
 # إنشاء مثيل من الذكاء المتقدم
@@ -67,186 +67,11 @@ async def home():
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>🤖 بسام الذكي - BASSAM AI APP</title>
-        <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body {
-                font-family: 'Segoe UI', Tahoma, Arial, sans-serif;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                padding: 20px;
-                direction: rtl;
-            }
-            .container {
-                max-width: 800px;
-                margin: 0 auto;
-                background: white;
-                border-radius: 20px;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-                overflow: hidden;
-            }
-            .header {
-                background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-                color: white;
-                padding: 40px 30px;
-                text-align: center;
-            }
-            .header h1 { font-size: 2.5em; margin-bottom: 10px; }
-            .header p { font-size: 1.2em; opacity: 0.9; }
-            .content { padding: 40px 30px; }
-            .form-group { margin-bottom: 25px; }
-            label { display: block; margin-bottom: 10px; font-weight: bold; color: #333; }
-            input[type="text"] {
-                width: 100%;
-                padding: 15px;
-                border: 2px solid #e1e5e9;
-                border-radius: 10px;
-                font-size: 16px;
-                transition: border-color 0.3s;
-            }
-            input[type="text"]:focus { border-color: #4facfe; outline: none; }
-            .mode-selector {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                gap: 15px;
-                margin: 25px 0;
-            }
-            .mode-btn {
-                padding: 15px;
-                border: 2px solid #e1e5e9;
-                background: white;
-                border-radius: 10px;
-                cursor: pointer;
-                text-align: center;
-                font-weight: bold;
-                transition: all 0.3s;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
-            }
-            .mode-btn:hover { background: #f8f9fa; transform: translateY(-2px); }
-            .mode-btn.active {
-                background: #4facfe;
-                color: white;
-                border-color: #4facfe;
-                transform: translateY(-2px);
-            }
-            .submit-btn {
-                width: 100%;
-                padding: 18px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                color: white;
-                border: none;
-                border-radius: 12px;
-                font-size: 18px;
-                font-weight: bold;
-                cursor: pointer;
-                transition: transform 0.3s;
-            }
-            .submit-btn:hover { transform: translateY(-3px); }
-            .features {
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 20px;
-                margin-top: 30px;
-            }
-            .feature {
-                background: #f8f9fa;
-                padding: 20px;
-                border-radius: 10px;
-                text-align: center;
-            }
-            .feature-icon { font-size: 2em; margin-bottom: 10px; }
-            .footer {
-                background: #f8f9fa;
-                padding: 20px;
-                text-align: center;
-                color: #666;
-                border-top: 1px solid #eee;
-            }
-        </style>
     </head>
     <body>
-        <div class="container">
-            <div class="header">
-                <h1>🤖 بسام الذكي</h1>
-                <p>مساعدك الذكي للبحث والرياضيات والذكاء الاصطناعي</p>
-            </div>
-            
-            <div class="content">
-                <form method="post" action="/search">
-                    <div class="form-group">
-                        <label for="query">اطرح سؤالك أو مسألتك:</label>
-                        <input type="text" id="query" name="query" 
-                               placeholder="مثال: ما هو الذكاء الاصطناعي؟ | diff: x^2 + 3x | ارسم sin(x)" 
-                               required>
-                    </div>
-                    
-                    <div class="mode-selector">
-                        <label class="mode-btn active">
-                            <input type="radio" name="mode" value="smart" checked style="display:none">
-                            🤖 ذكي
-                        </label>
-                        <label class="mode-btn">
-                            <input type="radio" name="mode" value="search" style="display:none">
-                            🔍 بحث
-                        </label>
-                        <label class="mode-btn">
-                            <input type="radio" name="mode" value="math" style="display:none">
-                            📊 رياضيات
-                        </label>
-                        <label class="mode-btn">
-                            <input type="radio" name="mode" value="images" style="display:none">
-                            🖼️ صور
-                        </label>
-                    </div>
-                    
-                    <button type="submit" class="submit-btn">🚀 ابدأ البحث</button>
-                </form>
-                
-                <div class="features">
-                    <div class="feature">
-                        <div class="feature-icon">🤖</div>
-                        <h3>ذكاء اصطناعي</h3>
-                        <p>إجابات ذكية مجانية بالعربية</p>
-                    </div>
-                    <div class="feature">
-                        <div class="feature-icon">📊</div>
-                        <h3>رياضيات متقدمة</h3>
-                        <p>مشتقات، تكاملات، رسوم بيانية</p>
-                    </div>
-                    <div class="feature">
-                        <div class="feature-icon">🔍</div>
-                        <h3>بحث ذكي</h3>
-                        <p>بحث وتلخيص المحتوى العربي</p>
-                    </div>
-                    <div class="feature">
-                        <div class="feature-icon">🌐</div>
-                        <h3>دعم العربية</h3>
-                        <p>مصمم خصيصاً للمستخدم العربي</p>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="footer">
-                <p>🤖 تطبيق بسام الذكي - BASSAM AI APP v1.0</p>
-                <p>مساعدك الذكي المجاني باللغة العربية</p>
-            </div>
-        </div>
-        
-        <script>
-            // تفعيل أزرار الوضع
-            document.querySelectorAll('.mode-btn').forEach(btn => {
-                btn.addEventListener('click', () => {
-                    document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
-                    btn.classList.add('active');
-                    btn.querySelector('input').checked = true;
-                });
-            });
-            
-            // تركيز حقل الإدخال
-            document.getElementById('query').focus();
-        </script>
+        <h1>🤖 أهلاً بك في تطبيق بسام الذكي</h1>
+        <p>مساعدك للبحث والرياضيات والذكاء الاصطناعي</p>
+        <p><a href="/upload">📷 جرّب حل مسألة من صورة</a></p>
     </body>
     </html>
     """
@@ -319,8 +144,7 @@ async def search(query: str = Form(...), mode: str = Form("smart")):
                         search_result['ai_summary'] = enhanced
                     result = {"mode": "smart_search", "query": query, "result": search_result}
 
-        html_response = generate_result_html(result)
-        return HTMLResponse(content=html_response)
+        return HTMLResponse(content=generate_result_html(result))
 
     except Exception as e:
         return JSONResponse({"error": f"حدث خطأ أثناء المعالجة: {str(e)}", "query": query, "mode": mode})
@@ -331,12 +155,7 @@ def generate_result_html(result: dict) -> str:
     query = result.get("query", "")
     data = result.get("result", {})
 
-    base_html = f"""
-    <!DOCTYPE html>
-    <html lang="ar" dir="rtl">
-    <head><meta charset="UTF-8"><title>نتائج البحث - بسام الذكي</title></head>
-    <body><h2>السؤال: {query}</h2>
-    """
+    base_html = f"<h2>السؤال: {query}</h2>"
 
     if "error" in data:
         base_html += f"<p>❌ خطأ: {data['error']}</p>"
@@ -344,13 +163,12 @@ def generate_result_html(result: dict) -> str:
         base_html += f"<p>📊 النتيجة: {data}</p>"
     elif mode == "images":
         imgs = data.get("images", [])
-        base_html += "<div>" + "".join(f"<img src='{i.get('thumbnail', i.get('image',''))}' width='150' style='margin:6px'>" for i in imgs) + "</div>"
+        base_html += "<div>" + "".join(f"<img src='{i.get('thumbnail')}' width='150'>" for i in imgs) + "</div>"
     elif mode.startswith("smart_ai"):
         base_html += f"<div>🤖 {data.get('answer')}</div>"
     else:
-        base_html += f"<div>🔍 {data.get('ai_summary', data.get('summary', 'لا توجد نتائج'))}</div>"
+        base_html += f"<div>🔍 {data.get('summary', 'لا توجد نتائج')}</div>"
 
-    base_html += "</body></html>"
     return base_html
 
 
