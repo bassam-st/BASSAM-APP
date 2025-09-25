@@ -1,285 +1,130 @@
-# core/math_engine.py
-# محرك رياضيات محلي مجاني قائم على Sympy
+# src/core/math_engine.py
+import re, html
+import sympy as sp
+from sympy import symbols, sympify, Eq, solveset, S, diff, integrate, factor, pi, sin, cos, tan, log, sqrt
 
-from __future__ import annotations
-from typing import Any, Dict, List, Optional, Union
+X = symbols("x")
+SAFE = {"x": X, "pi": pi, "sin": sin, "cos": cos, "tan": tan, "log": log, "sqrt": sqrt}
 
-from sympy import (
-    symbols, sympify, S, Eq, solveset, diff, integrate, simplify, factor,
-    Matrix, det, pi, E, oo, sin, cos, tan, asin, acos, atan, log, exp,
-    sqrt, Abs, re, im, Rational
-)
-from sympy.core.symbol import Symbol
-from sympy.parsing.sympy_parser import (
-    standard_transformations,
-    convert_xor,
-    implicit_multiplication_application,
-    rationalize,
-)
-
-# =========================
-# إعدادات عامة وآمنة
-# =========================
-
-_ALLOWED_LOCALS: Dict[str, Any] = {
-    "pi": pi, "E": E, "oo": oo,
-    "sin": sin, "cos": cos, "tan": tan,
-    "asin": asin, "acos": acos, "atan": atan,
-    "log": log, "ln": log,  # ln == log في sympy
-    "exp": exp, "sqrt": sqrt, "Abs": Abs, "re": re, "im": im,
-    "Rational": Rational,
-}
-
-# رموز شائعة
-x, y, z = symbols("x y z")
-_ALLOWED_LOCALS.update({"x": x, "y": y, "z": z})
-
-_TRANSFORMS = (
-    standard_transformations + (convert_xor, implicit_multiplication_application, rationalize)
-)
-
-
-class MathError(Exception):
-    """خطأ خاص بمحرك الرياضيات"""
-    pass
-
-
-def _detect_var(expr_text: str) -> Symbol:
-    for v in ("x", "y", "z"):
-        if v in expr_text:
-            return symbols(v)
-    return x
-
-
-def _sympify(text: str) -> Any:
+def _latex(expr):
     try:
-        return sympify(text, locals=_ALLOWED_LOCALS, transformations=_TRANSFORMS, evaluate=True)
-    except Exception as e:
-        raise MathError(f"صيغة غير مفهومة: `{text}` — {e}")
-
-
-# =========================
-# دوال أساسية
-# =========================
-
-def evaluate_function(expr_str: str, at: Optional[Union[int, float]] = None, var: Optional[str] = None) -> Dict[str, Any]:
-    v = symbols(var) if var else _detect_var(expr_str)
-    expr = _sympify(expr_str)
-    out: Dict[str, Any] = {"operation": "تقييم دالة", "expression": str(expr), "variable": str(v)}
-    if at is not None:
-        val = expr.subs(v, at)
-        try:
-            out.update({"at": at, "value": float(val)})
-        except Exception:
-            out.update({"at": at, "value": str(val)})
-    return out
-
-
-def differentiate(expr_str: str, order: int = 1, at: Optional[Union[int, float]] = None, var: Optional[str] = None) -> Dict[str, Any]:
-    if order < 1:
-        raise MathError("رتبة المشتقة يجب أن تكون 1 أو أكثر.")
-    v = symbols(var) if var else _detect_var(expr_str)
-    expr = _sympify(expr_str)
-    deriv = diff(expr, v, order)
-    out: Dict[str, Any] = {
-        "operation": f"مشتقة رتبة {order}",
-        "expression": str(expr),
-        "variable": str(v),
-        "order": order,
-        "derivative": str(deriv)
-    }
-    if at is not None:
-        val = deriv.subs(v, at)
-        try:
-            out["at"] = at
-            out["derivative_value"] = float(val)
-        except Exception:
-            out["at"] = at
-            out["derivative_value"] = str(val)
-    return out
-
-
-def integrate_expr(expr_str: str, a: Optional[Union[int, float]] = None, b: Optional[Union[int, float]] = None, var: Optional[str] = None) -> Dict[str, Any]:
-    v = symbols(var) if var else _detect_var(expr_str)
-    expr = _sympify(expr_str)
-    if a is None and b is None:
-        integ = integrate(expr, v)
-        return {"operation": "تكامل غير محدد", "expression": str(expr), "variable": str(v), "integral": str(integ)}
-    if (a is None) ^ (b is None):
-        raise MathError("للتكامل المحدد يجب تحديد الحدين معاً a و b.")
-    integ = integrate(expr, (v, a, b))
-    try:
-        val = float(integ)
+        return sp.latex(expr)
     except Exception:
-        val = str(integ)
-    return {
-        "operation": "تكامل محدد",
-        "expression": str(expr),
-        "variable": str(v),
-        "a": a, "b": b,
-        "definite_integral": val
-    }
+        return str(expr)
 
+def solve_query(q: str) -> str:
+    q = q.strip()
 
-def solve_equation(eq_str: str, var: Optional[str] = None) -> Dict[str, Any]:
-    v = symbols(var) if var else _detect_var(eq_str)
-    if "=" in eq_str:
-        left, right = eq_str.split("=", 1)
-        left_expr = _sympify(left)
-        right_expr = _sympify(right)
-        equation = Eq(left_expr, right_expr)
-    else:
-        equation = Eq(_sympify(eq_str), S.Zero)
+    # حل معادلة
+    m = re.search(r"حل\s+(.*)=(.*)", q)
+    if m:
+        left = sympify(m.group(1), locals=SAFE)
+        right = sympify(m.group(2), locals=SAFE)
+        eq = Eq(left, right)
 
-    sol = solveset(equation, v, domain=S.Complexes)
-    if hasattr(sol, "__iter__"):
-        pretty = [str(s) for s in list(sol)]
-    else:
-        pretty = [str(sol)]
-    return {
-        "operation": "حل معادلة",
-        "equation": str(equation),
-        "variable": str(v),
-        "solutions": pretty,
-        "success": True,
-    }
+        head = f"<h2>📌 حل المعادلة</h2><div>$$ {_latex(eq)} $$</div>"
 
-
-def simplify_expr(expr_str: str) -> Dict[str, Any]:
-    expr = _sympify(expr_str)
-    return {"operation": "تبسيط", "original": str(expr), "simplified": str(simplify(expr))}
-
-
-def factor_expr(expr_str: str) -> Dict[str, Any]:
-    expr = _sympify(expr_str)
-    return {"operation": "تحليل", "original": str(expr), "factored": str(factor(expr))}
-
-
-# =========================
-# خطوات توضيحية بسيطة
-# =========================
-
-def _steps_for_polynomial_eval(expr_str: str, at: float, value: Union[float, str]) -> list:
-    return [
-        {"id": "s1", "title": "تعويض", "text": f"نعوّض x = {at} في {expr_str}."},
-        {"id": "s2", "title": "حساب جزئي", "text": "نحسب الحدود خطوة خطوة ثم نجمعها."},
-        {"id": "s3", "title": "النتيجة", "text": f"قيمة الدالة عند x={at} تساوي {value}."},
-    ]
-
-
-def wrap_result_with_steps(math_result: dict) -> dict:
-    res = dict(math_result or {})
-    expr = str(res.get("expression", res.get("expr", "")))
-    steps = res.get("steps", [])
-
-    if "value" in res and "at" in res and not steps:
-        steps = _steps_for_polynomial_eval(expr or "f(x)", res["at"], res["value"])
-
-    if ("derivative" in res or "derivative_value" in res) and not steps:
-        d = res.get("derivative", "")
-        dv = res.get("derivative_value", None)
-        steps = [
-            {"id": "s1", "title": "اشتقاق", "text": f"المشتقة: {d}."},
-            {"id": "s2", "title": "تعويض", "text": f"قيمة المشتقة عند النقطة: {dv}." if dv is not None else "لا توجد نقطة تقييم."},
-        ]
-
-    if ("integral" in res or "definite_integral" in res) and not steps:
-        val = res.get("definite_integral", None)
-        steps = [{"id": "s1", "title": "التكامل", "text": f"أوجدنا التكامل للتعبير {expr}."}]
-        if val is not None:
-            steps.append({"id": "s2", "title": "قيمة محددة", "text": f"قيمة التكامل المحدد = {val}."})
-
-    res["steps"] = steps
-    return res
-
-
-# =========================
-# موجه نصي مبسّط
-# =========================
-
-def solve_math_problem(query: str):
-    q = (query or "").strip()
-    q = (
-        q.replace("^", "**")
-         .replace("×", "*")
-         .replace("−", "-")
-         .replace("= 0", "=0")
-         .replace("أوجد الجذور", "حل")
-         .replace("احسب الجذور", "حل")
-    )
-
-    if ("حل" in q) or ("=" in q):
-        try:
-            if "=" in q:
-                left, right = q.split("=", 1)
-                expr = left.split("حل")[-1].strip() + " = " + right.strip()
-            else:
-                core = q.split("حل")[-1].strip()
-                expr = f"{core} = 0"
-            return solve_equation(expr)
-        except Exception as e:
-            return {"success": False, "error": f"تعذّر تفسير المعادلة: {e}"}
-
-    if any(k in q for k in ["مشتق", "اشتق", "deriv", "diff"]):
-        expr = q
-        for k in ["مشتق", "اشتق", "deriv", "diff", ":", "of"]:
-            expr = expr.replace(k, "")
-        res = differentiate(expr.strip())
-        return wrap_result_with_steps(res)
-
-    if any(k in q for k in ["تكامل", "integral"]):
-        txt = q.replace("integral", "تكامل")
-        if "من" in txt and "إلى" in txt:
+        poly = (left - right).as_poly(X)
+        if poly is not None:
+            fact_html = ""
             try:
-                head, tail = txt.split("من", 1)
-                expr = head.replace("تكامل", "").strip()
-                a_txt, b_txt = tail.split("إلى", 1)
-                a = _sympify(a_txt.strip())
-                b = _sympify(b_txt.strip())
-                res = integrate_expr(expr, a=float(a), b=float(b))
-                return wrap_result_with_steps(res)
+                fac = factor(poly.as_expr())
+                if fac != poly.as_expr():
+                    fact_html = f"<div class='tag'>التفكيك:</div><div>$$ {_latex(fac)} $$</div>"
             except Exception:
-                res = integrate_expr(txt.replace("تكامل", "").strip())
-                return wrap_result_with_steps(res)
-        else:
-            res = integrate_expr(txt.replace("تكامل", "").strip())
-            return wrap_result_with_steps(res)
+                pass
 
-    if any(k in q for k in ["بسّط", "بسط", "simplify"]):
-        return simplify_expr(q.replace("بسّط", "").replace("بسط", "").replace("simplify", "").strip())
+            deg = poly.degree()
+            steps_html = ""
+            roots_real, roots_cmplx = [], []
 
-    if any(k in q for k in ["حلّل", "حلل", "factor"]):
-        return factor_expr(q.replace("حلّل", "").replace("حلل", "").replace("factor", "").strip())
+            if deg == 1:
+                a, b = poly.all_coeffs()  # ax + b
+                sol = -b/a
+                steps_html = (
+                    "<h3>الخطوات:</h3>"
+                    r"<div>$$ x = -\frac{b}{a} $$</div>"
+                    f"<div>حيث $$ a={_latex(a)},\ b={_latex(b)} $$</div>"
+                )
+                roots_real = [sol.evalf(12)]
+            elif deg == 2:
+                a, b, c = poly.all_coeffs()
+                disc = b**2 - 4*a*c
+                x1 = (-b + sp.sqrt(disc)) / (2*a)
+                x2 = (-b - sp.sqrt(disc)) / (2*a)
+                steps_html = (
+                    "<h3>الخطوات (القانون العام):</h3>"
+                    r"<div>$$ x=\frac{-b\pm\sqrt{b^2-4ac}}{2a} $$</div>"
+                    f"<div>حيث $$ a={_latex(a)},\ b={_latex(b)},\ c={_latex(c)} $$</div>"
+                    f"<div>$$ \\Delta = {_latex(disc)} $$</div>"
+                )
+                vals = [sp.N(x1, 12), sp.N(x2, 12)]
+                roots_real  = [r for r in vals if abs(sp.im(r)) < 1e-12]
+                roots_cmplx = [r for r in vals if abs(sp.im(r)) >= 1e-12]
+            else:
+                nrs = poly.nroots(n=15, maxsteps=200)
+                roots_real  = [sp.N(r, 12) for r in nrs if abs(sp.im(r)) < 1e-10]
+                roots_cmplx = [sp.N(r, 12) for r in nrs if abs(sp.im(r)) >= 1e-10]
+                steps_html = "<h3>الطريقة:</h3><div>اُستخدمت طريقة عددية nroots من SymPy.</div>"
 
-    res = evaluate_function(q)
-    return wrap_result_with_steps(res)
+            real_html = "<br>".join(f"$$ x \\approx {_latex(r)} $$" for r in roots_real) or "لا توجد جذور حقيقية."
+            cmplx_html = "<br>".join(f"$$ x \\approx {_latex(r)} $$" for r in roots_cmplx) or "لا توجد جذور عقدية."
 
+            return (
+                head + fact_html + steps_html +
+                "<h3>الجذور الحقيقية (تقريبًا):</h3><div>" + real_html + "</div>" +
+                "<h3>الجذور العقدية (تقريبًا):</h3><div>" + cmplx_html + "</div>"
+            )
 
-# =========================
-# كائن يصدّر باسم math_engine
-# =========================
+        # ليست كثيرة حدود
+        sol = solveset(eq, X, domain=S.Complexes)
+        return head + "<h3>الحل الرمزي:</h3><div>$$ " + _latex(sol) + " $$</div>"
 
-class MathEngine:
-    def solve_math_problem(self, query: str):
-        return solve_math_problem(query)
+    # مشتقة
+    m = re.search(r"(اشتق|مشتقة)\s+(.*)", q)
+    if m:
+        expr = sympify(m.group(2), locals=SAFE)
+        d = diff(expr, X)
+        return (
+            "<h2>📌 المشتقة</h2>"
+            f"<div>$$ f(x) = {_latex(expr)} $$</div>"
+            f"<div>$$ f'(x) = {_latex(d)} $$</div>"
+        )
 
-    def evaluate(self, expr: str, at: Optional[float] = None, var: Optional[str] = None):
-        return evaluate_function(expr, at=at, var=var)
+    # تكامل محدد
+    m = re.search(r"تكامل\s+(.*)\s+من\s+(.*)\s+إلى\s+(.*)", q)
+    if m:
+        expr = sympify(m.group(1), locals=SAFE)
+        a = sympify(m.group(2), locals=SAFE)
+        b = sympify(m.group(3), locals=SAFE)
+        val = integrate(expr, (X, a, b))
+        F = integrate(expr, X)
+        return (
+            "<h2>📌 التكامل المحدد</h2>"
+            f"<div>$$ \\int_{{{_latex(a)}}}^{{{_latex(b)}}} {_latex(expr)}\\,dx $$</div>"
+            f"<div class='tag'>دالة أصلية:</div><div>$$ F(x) = {_latex(F)} $$</div>"
+            f"<h3>النتيجة:</h3><div>$$ {_latex(val)} $$</div>"
+        )
 
-    def differentiate(self, expr: str, order: int = 1, at: Optional[float] = None, var: Optional[str] = None):
-        return differentiate(expr, order=order, at=at, var=var)
+    # تكامل غير محدد
+    m = re.search(r"تكامل\s+(.*)", q)
+    if m:
+        expr = sympify(m.group(1), locals=SAFE)
+        F = integrate(expr, X)
+        return (
+            "<h2>📌 التكامل</h2>"
+            f"<div>$$ \\int {_latex(expr)}\\,dx = {_latex(F)} + C $$</div>"
+        )
 
-    def integrate(self, expr: str, a: Optional[float] = None, b: Optional[float] = None, var: Optional[str] = None):
-        return integrate_expr(expr, a=a, b=b, var=var)
-
-    def solve(self, eq: str, var: Optional[str] = None):
-        return solve_equation(eq, var=var)
-
-    def simplify(self, expr: str):
-        return simplify_expr(expr)
-
-    def factor(self, expr: str):
-        return factor_expr(expr)
-
-
-math_engine = MathEngine()
+    # تبسيط/تقييم
+    try:
+        expr = sympify(q, locals=SAFE)
+        simp = sp.simplify(expr)
+        return (
+            "<h2>📌 تبسيط/تقييم</h2>"
+            f"<div>$$ {_latex(expr)} $$</div>"
+            "<div class='tag'>النتيجة:</div>"
+            f"<div>$$ {_latex(simp)} $$</div>"
+        )
+    except Exception as e:
+        return f"<h2>تعذر فهم المسألة</h2><pre>{html.escape(str(e))}</pre>"
