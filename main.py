@@ -3,7 +3,7 @@
 تطبيق ذكي شامل للبحث والرياضيات والذكاء الاصطناعي باللغة العربية
 """
 
-from fastapi import FastAPI, Form, Request, Body, Query, HTTPException
+from fastapi import FastAPI, Form, Body, Query, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from typing import Optional, Dict, Any
 import os
@@ -51,9 +51,12 @@ async def health():
         "system_healthy": system_status["system_healthy"]
     }
 
+# =========================
+# صفحة البداية مع لوحة الرموز
+# =========================
 @app.get("/", response_class=HTMLResponse)
 async def home():
-    """الصفحة الرئيسية"""
+    """الصفحة الرئيسية مع لوحة رموز رياضية"""
     return """
     <!DOCTYPE html>
     <html lang="ar" dir="rtl">
@@ -87,7 +90,7 @@ async def home():
             .header h1 { font-size: 2.5em; margin-bottom: 10px; }
             .header p { font-size: 1.2em; opacity: 0.9; }
             .content { padding: 40px 30px; }
-            .form-group { margin-bottom: 25px; }
+            .form-group { margin-bottom: 18px; }
             label { display: block; margin-bottom: 10px; font-weight: bold; color: #333; }
             input[type="text"] {
                 width: 100%;
@@ -97,40 +100,34 @@ async def home():
                 font-size: 16px;
                 transition: border-color 0.3s;
             }
-            input[type="text"]:focus {
-                border-color: #4facfe;
-                outline: none;
-            }
+            input[type="text"]:focus { border-color: #4facfe; outline: none; }
+
+            /* أزرار اختيار الوضع */
             .mode-selector {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                gap: 15px;
-                margin: 25px 0;
+                gap: 12px;
+                margin: 18px 0;
             }
             .mode-btn {
-                padding: 15px;
+                padding: 12px;
                 border: 2px solid #e1e5e9;
                 background: white;
                 border-radius: 10px;
                 cursor: pointer;
                 text-align: center;
                 font-weight: bold;
-                transition: all 0.3s;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                gap: 8px;
+                transition: all 0.25s;
+                display: flex; align-items: center; justify-content: center; gap: 8px;
             }
             .mode-btn:hover { background: #f8f9fa; transform: translateY(-2px); }
             .mode-btn.active {
-                background: #4facfe;
-                color: white;
-                border-color: #4facfe;
-                transform: translateY(-2px);
+                background: #4facfe; color: white; border-color: #4facfe; transform: translateY(-2px);
             }
+
             .submit-btn {
                 width: 100%;
-                padding: 18px;
+                padding: 16px;
                 background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 color: white;
                 border: none;
@@ -138,9 +135,10 @@ async def home():
                 font-size: 18px;
                 font-weight: bold;
                 cursor: pointer;
-                transition: transform 0.3s;
+                transition: transform 0.25s;
             }
             .submit-btn:hover { transform: translateY(-3px); }
+
             .features {
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -161,6 +159,23 @@ async def home():
                 color: #666;
                 border-top: 1px solid #eee;
             }
+
+            /* لوحة الرموز الرياضية */
+            .math-keyboard {
+                display: none; /* تظهر فقط مع وضع الرياضيات */
+                flex-wrap: wrap; gap: 8px; margin: 10px 0 16px 0;
+            }
+            .math-keyboard button {
+                border: 1px solid #dbe1e7; background: #fff;
+                border-radius: 8px; padding: 8px 10px;
+                cursor: pointer; font-size: 14px;
+                transition: background 0.2s, transform 0.1s;
+            }
+            .math-keyboard button:hover { background: #f3f6fa; }
+            .math-keyboard button:active { transform: scale(0.98); }
+            .kbd-note { color:#666; font-size:12px; margin-top:-6px; margin-bottom:8px; }
+            .hint { color:#555; font-size: 12px; margin-top: 6px; }
+            code.prompt { background:#f4f5f7; padding:2px 6px; border-radius:6px; }
         </style>
     </head>
     <body>
@@ -175,8 +190,29 @@ async def home():
                     <div class="form-group">
                         <label for="query">اطرح سؤالك أو مسألتك:</label>
                         <input type="text" id="query" name="query" 
-                               placeholder="مثال: ما هو الذكاء الاصطناعي؟ | diff: x^2 + 3x | ارسم sin(x)" 
+                               placeholder="مثال: حل 2*x**2 + 3*x - 2 = 0 | تكامل sin(x) من 0 إلى pi | اشتق 3*x**2 + 5*x - 7"
                                required>
+                        <div class="hint">تلميح: استخدم <code class="prompt">x**2</code> للأسس، <code class="prompt">sqrt(x)</code> للجذر، <code class="prompt">pi</code> للعدد π.</div>
+                    </div>
+
+                    <!-- لوحة الرموز الرياضية (تظهر فقط عندما يُختار وضع الرياضيات) -->
+                    <div id="math-kbd" class="math-keyboard">
+                        <div class="kbd-note">لوحة الرموز السريعة:</div>
+                        <button type="button" onclick="insertSymbol('^2')">x²</button>
+                        <button type="button" onclick="insertSymbol('**')">^ برمجي ( ** )</button>
+                        <button type="button" onclick="insertSymbol('sqrt()')">√ الجذر</button>
+                        <button type="button" onclick="insertSymbol('pi')">π</button>
+                        <button type="button" onclick="insertSymbol('Abs()')">|x|</button>
+                        <button type="button" onclick="insertSymbol('sin()')">sin</button>
+                        <button type="button" onclick="insertSymbol('cos()')">cos</button>
+                        <button type="button" onclick="insertSymbol('tan()')">tan</button>
+                        <button type="button" onclick="insertSymbol('ln()')">ln</button>
+                        <button type="button" onclick="insertSymbol('log(,10)')">log₁₀</button>
+                        <button type="button" onclick="insertSymbol('exp()')">eˣ</button>
+                        <button type="button" onclick="insertSymbol('∫ ')">∫ (رمز فقط)</button>
+                        <button type="button" onclick="insertTemplate('integral')">∫ تكامل محدد</button>
+                        <button type="button" onclick="insertTemplate('deriv')">مشتقة d/dx</button>
+                        <button type="button" onclick="insertTemplate('solve')">حل معادلة = 0</button>
                     </div>
                     
                     <div class="mode-selector">
@@ -198,7 +234,7 @@ async def home():
                         </label>
                     </div>
                     
-                    <button type="submit" class="submit-btn">🚀 ابدأ البحث</button>
+                    <button type="submit" class="submit-btn">🚀 ابدأ</button>
                 </form>
                 
                 <div class="features">
@@ -232,24 +268,68 @@ async def home():
         </div>
         
         <script>
-            // تفعيل أزرار الوضع
+            // تبديل الحالة المرئية للوحة الرياضيات حسب الوضع
+            function refreshKeyboardVisibility() {
+                const kbd = document.getElementById('math-kbd');
+                const mode = document.querySelector('input[name="mode"]:checked').value;
+                kbd.style.display = (mode === 'math') ? 'flex' : 'none';
+            }
+
+            // تفعيل أزرار الوضع + إظهار اللوحة عند اختيار "رياضيات"
             document.querySelectorAll('.mode-btn').forEach(btn => {
                 btn.addEventListener('click', () => {
                     document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
                     btn.classList.add('active');
-                    btn.querySelector('input').checked = true;
+                    const radio = btn.querySelector('input');
+                    radio.checked = true;
+                    refreshKeyboardVisibility();
+                    // تلميح لنماذج الرياضيات
+                    if (radio.value === 'math') {
+                        const q = document.getElementById('query');
+                        if (!q.value) q.placeholder = "أمثلة: حل 2*x**2 + 3*x - 2 = 0 | اشتق 3*x**2 + 5*x - 7 | تكامل sin(x) من 0 إلى pi";
+                    }
                 });
             });
-            
-            // تركيز حقل الإدخال
-            document.getElementById('query').focus();
+
+            // إدخال رمز مباشرة في خانة النص
+            function insertSymbol(symbol) {
+                const input = document.getElementById("query");
+                const start = input.selectionStart, end = input.selectionEnd;
+                const text = input.value;
+                input.value = text.slice(0, start) + symbol + text.slice(end);
+                input.focus();
+                const pos = start + symbol.length;
+                input.setSelectionRange(pos, pos);
+            }
+
+            // قوالب سريعة
+            function insertTemplate(kind) {
+                const input = document.getElementById("query");
+                let t = "";
+                if (kind === 'integral') {
+                    t = "تكامل sin(x) من 0 إلى pi";
+                } else if (kind === 'deriv') {
+                    t = "اشتق 3*x**2 + 5*x - 7";
+                } else if (kind === 'solve') {
+                    t = "حل 2*x**2 + 3*x - 2 = 0";
+                }
+                input.value = t;
+                input.focus();
+                input.setSelectionRange(t.length, t.length);
+            }
+
+            // تركيز حقل الإدخال عند التحميل + تزامن حالة اللوحة
+            window.addEventListener('DOMContentLoaded', () => {
+                document.getElementById('query').focus();
+                refreshKeyboardVisibility();
+            });
         </script>
     </body>
     </html>
     """
 
 # ------------------------------
-# [إضافة آمنة] واجهة REST للرياضيات
+# واجهة REST للرياضيات (كما هي)
 # ------------------------------
 def _do_math_safely(query: str) -> Dict[str, Any]:
     """استدعاء محرك الرياضيات الحالي كما هو مع رسائل أخطاء واضحة."""
@@ -279,10 +359,10 @@ async def math_get(query: str = Query(..., description="نص المسألة، م
     GET /math?query=تكامل%202*x%20من%200%20إلى%201
     """
     return _do_math_safely(query)
-# ------------------------------
-# نهاية إضافة /math
-# ------------------------------
 
+# ------------------------------
+# مسار البحث/الذكاء كما هو
+# ------------------------------
 @app.post("/search")
 async def search(query: str = Form(...), mode: str = Form("smart")):
     """معالجة طلبات البحث والحوسبة"""
@@ -333,6 +413,9 @@ async def search(query: str = Form(...), mode: str = Form("smart")):
     except Exception as e:
         return JSONResponse({"error": f"حدث خطأ أثناء المعالجة: {str(e)}", "query": query, "mode": mode})
 
+# ------------------------------
+# مولّد صفحة النتائج (كما هو)
+# ------------------------------
 def generate_result_html(result: dict) -> str:
     """توليد HTML لعرض النتائج"""
     mode = result.get("mode", "")
@@ -367,7 +450,7 @@ def generate_result_html(result: dict) -> str:
                 background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
                 color: white;
                 padding: 30px;
-                text-align: center.
+                text-align: center;
             }
             .content { padding: 30px; }
             .result-card {
@@ -446,7 +529,7 @@ def generate_result_html(result: dict) -> str:
                     <p>""" + data.get('error', 'خطأ غير محدد') + """</p>
                 </div>"""
     elif mode.startswith("smart_ai"):
-        ai_answer = data.get('answer', '').replace('\n', '<br>')
+        ai_answer = data.get('answer', '').replace('\\n', '<br>')
         base_html += """
             <div class="result-card ai-result">
                 <h3>🤖 إجابة ذكية</h3>
@@ -467,13 +550,13 @@ def generate_result_html(result: dict) -> str:
                 img_title_short = truncate_text(img_title, 50)
                 base_html += """
                     <div class="image-card">
-                        <img src=\"""" + img_thumbnail + """\" 
-                             alt=\"""" + img_title + """\" loading="lazy">
+                        <img src=\\"""" + img_thumbnail + """\\" 
+                             alt=\\"""" + img_title + """\\" loading="lazy">
                         <div class="title">""" + img_title_short + """</div>
                     </div>"""
             base_html += "</div></div>"
     else:
-        search_summary = data.get('ai_summary', data.get('summary', 'لا توجد نتائج')).replace('\n', '<br>')
+        search_summary = data.get('ai_summary', data.get('summary', 'لا توجد نتائج')).replace('\\n', '<br>')
         base_html += """
             <div class="result-card search-result">
                 <h3>🔍 ملخص البحث</h3>
@@ -487,7 +570,7 @@ def generate_result_html(result: dict) -> str:
             for result in results[:5]:
                 base_html += """
                     <div class="result-card">
-                        <h4><a href=\"""" + result.get('url', '#') + """\" target="_blank">""" + result.get('title', '') + """</a></h4>
+                        <h4><a href=\\"""" + result.get('url', '#') + """\\" target="_blank">""" + result.get('title', '') + """</a></h4>
                         <p>""" + result.get('snippet', '') + """</p>
                     </div>"""
 
