@@ -1,9 +1,16 @@
 fastapi
 uvicorn
 gunicorn
+
+# الذكاء والرياضيات
 sympy
-duckduckgo_search
+
+# البحث والصور
+duckduckgo-search
+
+# لو تحب تستخدم واجهة Gemini (اختياري)
 google-generativeai
-python-multipart
+
+# القوالب ورفع ملفات
 jinja2
-httpx
+python-multipart
