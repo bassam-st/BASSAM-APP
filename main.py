@@ -296,3 +296,118 @@ async def search(query: str = Form(...), mode: str = Form("smart")):
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+    # ===== طبقات الإجابة (Fallback Pipeline) =====
+
+def _is_good_math_result(res: dict) -> bool:
+    """
+    يقرّر بسرعة إذا نتيجة الرياضيات مفيدة:
+    - فيها حلول/تكامل/مشتقة/تبسيط واضحة
+    - ما هي مجرد رسالة خطأ
+    """
+    if not isinstance(res, dict):
+        return False
+    if res.get("success") is False or res.get("error"):
+        return False
+    # أي مفتاح ناتج مفيد:
+    useful_keys = {"solutions", "integral", "definite_integral", "derivative", "simplified", "factored", "value"}
+    return any(k in res and res[k] not in (None, "", []) for k in useful_keys)
+
+def try_math_first(q: str) -> str | None:
+    """يحاول حل المسألة رياضيًا عبر core.math_engine ثم يُرجع HTML إذا مفيد."""
+    if not math_engine:
+        return None
+    try:
+        res = math_engine.solve_math_problem(q)  # dict
+        if _is_good_math_result(res):
+            return render_math_result(res)  # HTML
+    except Exception as e:
+        print("Math engine error:", e)
+    return None
+
+
+def try_ai_second(q: str) -> str | None:
+    """
+    يحاول الذكاء الاصطناعي:
+    - لو ai_engine موجود ومفعّل → يستخدمه
+    - لو مو متوفر → يرجع None عشان ننتقل للبحث
+    """
+    if ai_engine and getattr(ai_engine, "is_gemini_available", None):
+        try:
+            if ai_engine.is_gemini_available():
+                data = ai_engine.answer_question(q)  # {'answer': ...}
+                if data and data.get("answer"):
+                    ans = html.escape(data["answer"]).replace("\n", "<br>")
+                    return f"<h2>🤖 رد الذكاء الاصطناعي</h2><div>{ans}</div>"
+        except Exception as e:
+            print("AI engine error:", e)
+    return None
+
+
+def try_web_third(q: str) -> str:
+    """بحث ويب + تلخيص كـ 'ذكاء اصطناعي مجاني'."""
+    if DDGS is None:
+        return "<h2>🔍 البحث غير مُفعل</h2><p>ثبّت duckduckgo_search في requirements.txt</p>"
+
+    # اجلب نتائج نصية مختصرة
+    hits = []
+    links_html = []
+    with DDGS() as ddgs:
+        for r in ddgs.text(q, max_results=6):
+            title = r.get("title", "") or "نتيجة"
+            body = r.get("body", "")
+            href = r.get("href", "")
+            if title or body:
+                hits.append(f"{title}. {body}")
+            if href:
+                links_html.append(f'<li><a target="_blank" href="{html.escape(href)}">{html.escape(title)}</a></li>')
+
+    # لخّص سطور النتائج (ملخّص بسيط)
+    summary = simple_summarize(hits, max_sent=6) or "لم أجد إجابة مؤكدة، جرّب إعادة الصياغة أو كلمات مفتاحية أخرى."
+    links_block = "<ul class='result'>" + "".join(links_html) + "</ul>" if links_html else ""
+
+    return f"""
+    <h2>🤖 ملخص ذكي (وضع مجاني)</h2>
+    <div>{html.escape(summary)}</div>
+    <h3>روابط ذات صلة:</h3>
+    {links_block if links_block else "<p>لا روابط كافية</p>"}
+    """
+
+
+def answer_pipeline(q: str, mode: str) -> str:
+    """
+    الاستراتيجية المطلوبة:
+      - لو وضع Math → Math → AI → Web
+      - لو وضع Smart → AI → Web (وممكن Math إذا السؤال واضح أنه رياضي)
+      - لو وضع Search/Images تبقى وظائفها كما هي
+    """
+    m = (mode or "smart").strip().lower()
+
+    # Math mode صريح
+    if m == "math":
+        html_math = try_math_first(q)
+        if html_math: return html_math
+        html_ai = try_ai_second(q)
+        if html_ai: return html_ai
+        return try_web_third(q)
+
+    # Smart mode: أولًا AI، ولو باين سؤال رياضي جرّب Math قبل/بعد
+    if m == "smart":
+        # heuristic بسيط: لو فيه كلمات رياضيات جرّب Math أول
+        if re.search(r"(حل|تكامل|اشتق|مشتق|معادلة|^f\(x\)|\=|\*\*|sqrt|sin|cos|tan|log|ln)", q):
+            html_math = try_math_first(q)
+            if html_math: return html_math
+
+        html_ai = try_ai_second(q)
+        if html_ai: return html_ai
+
+        # لو الذكاء مو متاح → أرجع للبحث + تلخيص
+        return try_web_third(q)
+
+    # Search / Images: نستخدم الدوال الأصلية
+    if m == "search":
+        return do_web_search(q)
+    if m == "images":
+        return do_image_search(q)
+
+    # افتراضيًا:
+    return try_web_third(q)
