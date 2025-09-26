@@ -1,16 +1,15 @@
 fastapi
 uvicorn
-gunicorn
-
-# الذكاء والرياضيات
-sympy
-
-# البحث والصور
-duckduckgo-search
-
-# لو تحب تستخدم واجهة Gemini (اختياري)
-google-generativeai
-
-# القوالب ورفع ملفات
+httpx
 jinja2
 python-multipart
+duckduckgo-search
+beautifulsoup4
+readability-lxml
+sumy
+rank-bm25
+rapidfuzz
+numpy
+psycopg2-binary
+diskcache
+fpdf
