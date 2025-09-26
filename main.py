@@ -1,13 +1,56 @@
-# main.py — Bassam AI (Math + Search + Images + Gemini Smart + Pretty Math)
+# main.py — Bassam AI (Modular) — يستخدم محركات مجلد core/
+# - عرض رياضي جميل بـ MathJax
+# - محرك الرياضيات من core.math_engine
+# - الذكاء الاصطناعي من core.ai_engine (Gemini) + Fallback مجاني
+# - بحث وصور (DDG) + كاش خفيف
 
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
-import html, re, os, time
+import html, os, re, time
 
-# ===== إنشاء التطبيق =====
+# ===== تطبيق FastAPI =====
 app = FastAPI(title="Bassam AI")
 
-# ===== الصفحة الرئيسية HTML (مع MathJax) =====
+# ===== استيراد محركاتك من core/ =====
+# math_engine: يحتوي الدالة solve_math_problem(query) التي تعيد dict منسّق
+# ai_engine: يحتوي الكائن ai_engine وفيه answer_question() و generate_response()
+try:
+    from core.math_engine import math_engine
+except Exception as e:
+    math_engine = None
+    print(f"⚠️ لم أستطع استيراد core.math_engine: {e}")
+
+try:
+    from core.ai_engine import ai_engine
+except Exception as e:
+    ai_engine = None
+    print(f"⚠️ لم أستطع استيراد core.ai_engine: {e}")
+
+# ===== SymPy (لصياغة LaTeX عند الحاجة) =====
+from sympy import sympify, latex
+
+# ===== DuckDuckGo =====
+try:
+    from duckduckgo_search import DDGS
+except Exception:
+    DDGS = None
+
+# ===== كاش خفيف داخل الذاكرة =====
+_cache = {}  # key -> (expires_ts, html)
+
+def cache_get(key):
+    v = _cache.get(key)
+    if not v: return None
+    exp, data = v
+    if time.time() > exp:
+        _cache.pop(key, None)
+        return None
+    return data
+
+def cache_set(key, data, ttl=120):
+    _cache[key] = (time.time() + ttl, data)
+
+# ===== الصفحة الرئيسية (مع MathJax) =====
 HOME_HTML = """
 <!DOCTYPE html>
 <html lang="ar" dir="rtl">
@@ -16,7 +59,7 @@ HOME_HTML = """
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>🤖 بسام الذكي - BASSAM AI APP</title>
 
-  <!-- تفعيل MathJax لعرض الرياضيات بشكل جميل -->
+  <!-- MathJax لعرض الرياضيات -->
   <script>
     window.MathJax = { tex: { inlineMath: [['$', '$'], ['\\\\(', '\\\\)']] } };
   </script>
@@ -24,22 +67,22 @@ HOME_HTML = """
 
   <style>
     body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f1f5f9;direction:rtl;padding:20px}
-    .container{max-width:820px;margin:auto;background:#fff;padding:22px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08)}
+    .card{max-width:840px;margin:auto;background:#fff;padding:22px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08)}
     .header{text-align:center;margin-bottom:16px}
     .header h1{margin:0 0 6px}
-    .hint{color:#666;font-size:12px;margin-top:6px}
     .form-group{margin-bottom:12px}
     input[type="text"]{width:100%;padding:12px;border:1px solid #e5e7eb;border-radius:10px;font-size:16px}
-    .mode-selector{display:flex;gap:8px;margin:12px 0}
-    .mode-btn{flex:1;padding:10px;border:1px solid #e5e7eb;border-radius:10px;text-align:center;cursor:pointer}
-    .mode-btn.active{background:#4f46e5;color:#fff;border-color:#4f46e5}
-    .submit-btn{width:100%;padding:14px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-size:16px;cursor:pointer}
+    .hint{color:#666;font-size:12px;margin-top:6px}
+    .modes{display:flex;gap:8px;margin:12px 0}
+    .modes label{flex:1;padding:10px;border:1px solid #e5e7eb;border-radius:10px;text-align:center;cursor:pointer}
+    .modes label.active{background:#4f46e5;color:#fff;border-color:#4f46e5}
+    .submit{width:100%;padding:14px;background:#4f46e5;color:#fff;border:none;border-radius:10px;font-size:16px;cursor:pointer}
     .result a{color:#2563eb;text-decoration:none}
     .result li{margin:6px 0}
   </style>
 </head>
 <body>
-  <div class="container">
+  <div class="card">
     <div class="header">
       <h1>🤖 بسام الذكي</h1>
       <p>مساعدك للبحث والرياضيات والذكاء الاصطناعي</p>
@@ -54,21 +97,21 @@ HOME_HTML = """
         <div class="hint">تلميح: استخدم x**2 للأسس، sqrt(x) للجذر، pi لِـπ.</div>
       </div>
 
-      <div class="mode-selector">
-        <label class="mode-btn active"><input type="radio" name="mode" value="smart" checked hidden>🤖 ذكي</label>
-        <label class="mode-btn"><input type="radio" name="mode" value="search" hidden>🔍 بحث</label>
-        <label class="mode-btn"><input type="radio" name="mode" value="math" hidden>📊 رياضيات</label>
-        <label class="mode-btn"><input type="radio" name="mode" value="images" hidden>🖼️ صور</label>
+      <div class="modes">
+        <label class="active"><input type="radio" name="mode" value="smart" hidden checked>🤖 ذكي</label>
+        <label><input type="radio" name="mode" value="search" hidden>🔍 بحث</label>
+        <label><input type="radio" name="mode" value="math" hidden>📊 رياضيات</label>
+        <label><input type="radio" name="mode" value="images" hidden>🖼️ صور</label>
       </div>
 
-      <button type="submit" class="submit-btn">🚀 ابدأ</button>
+      <button type="submit" class="submit">🚀 ابدأ</button>
     </form>
   </div>
 
   <script>
-    document.querySelectorAll('.mode-btn').forEach(btn=>{
+    document.querySelectorAll('.modes label').forEach(btn=>{
       btn.addEventListener('click', ()=>{
-        document.querySelectorAll('.mode-btn').forEach(b=>b.classList.remove('active'));
+        document.querySelectorAll('.modes label').forEach(b=>b.classList.remove('active'));
         btn.classList.add('active'); btn.querySelector('input').checked = true;
       });
     });
@@ -88,143 +131,105 @@ def page_wrap(inner_html: str, title="نتيجة بسام"):
 <p style="margin-top:16px"><a href="/" style="color:#4f46e5">⬅ الرجوع</a></p>
 </div></body></html>"""
 
-# ===== كاش خفيف في الذاكرة (2 دقائق) =====
-_cache = {}  # key -> (expires_ts, html_text)
-
-def cache_get(key):
-    v = _cache.get(key)
-    if not v: return None
-    exp, data = v
-    if time.time() > exp:
-        _cache.pop(key, None)
-        return None
-    return data
-
-def cache_set(key, data, ttl=120):
-    _cache[key] = (time.time() + ttl, data)
-
-# ===== رياضيات (SymPy) =====
-from sympy import (
-    symbols, sympify, Eq, solveset, S, diff, integrate,
-    sin, cos, tan, log, sqrt, pi, latex
-)
-X = symbols("x")
-SAFE = {"x": X, "pi": pi, "sin": sin, "cos": cos, "tan": tan, "log": log, "sqrt": sqrt}
-
-def pretty_solutions(solset):
+# ================================
+# أدوات تنسيق نتائج الرياضيات
+# ================================
+def _to_latex_safe(txt: str) -> str:
+    """يحاول تحويل string إلى LaTeX؛ وإن فشل يعرضه كنص."""
     try:
-        sols = list(solset)
+        expr = sympify(txt)
+        return f"\\[{latex(expr)}\\]"
     except Exception:
-        sols = [solset]
-    items = []
-    for s in sols:
-        try:
-            approx = s.evalf(6)
-            items.append(f"\\({latex(s)} \\approx {approx}\\)")
-        except Exception:
-            items.append(f"\\({latex(s)}\\)")
-    return ", ".join(items) if items else "لا حلول"
+        return f"<pre>{html.escape(txt)}</pre>"
 
-def latex_eq(left, right):
-    return latex(Eq(left, right))
+def render_math_result(res: dict) -> str:
+    """يحوّل dict القادم من core.math_engine إلى HTML أنيق مع MathJax."""
+    if not isinstance(res, dict):
+        return "<h2>⚠️ نتيجة غير مفهومة من محرك الرياضيات</h2>"
 
-def solve_math(query: str) -> str:
-    key = ("math", query.strip())
-    cached = cache_get(key)
-    if cached: return cached
+    op = res.get("operation", "نتيجة رياضية")
+    parts = [f"<h2>📌 {html.escape(op)}</h2>"]
 
-    q = query.strip()
-    # حل معادلة: "حل ... = ..."
-    m = re.search(r"حل\s+(.*)=(.*)", q)
-    if m:
-        left = sympify(m.group(1), locals=SAFE); right = sympify(m.group(2), locals=SAFE)
-        sol = solveset(Eq(left, right), X, domain=S.Complexes)
-        eq_ltx = latex_eq(left, right)
-        sols_html = pretty_solutions(sol)
-        out = f"<h2>📌 حل المعادلة</h2><div>\\[{eq_ltx}\\]</div><h3>الحل:</h3><div>{sols_html}</div>"
-        cache_set(key, out); return out
+    # معادلة
+    if "equation" in res:
+        parts.append(_to_latex_safe(res["equation"]))
 
-    # مشتقة
-    m = re.search(r"(اشتق|مشتقة)\s+(.*)", q)
-    if m:
-        expr = sympify(m.group(2), locals=SAFE); d = diff(expr, X)
-        out = f"<h2>📌 المشتقة</h2><div>\\[f(x)={latex(expr)}\\]</div><h3>f'(x)</h3><div>\\[{latex(d)}\\]</div>"
-        cache_set(key, out); return out
+    # التعبير/المتحول
+    if "expression" in res:
+        parts.append(_to_latex_safe(res["expression"]))
 
-    # تكامل محدد
-    m = re.search(r"تكامل\s+(.*)\s+من\s+(.*)\s+إلى\s+(.*)", q)
-    if m:
-        expr = sympify(m.group(1), locals=SAFE); a = sympify(m.group(2), locals=SAFE); b = sympify(m.group(3), locals=SAFE)
-        val = integrate(expr, (X, a, b))
-        out = f"<h2>📌 التكامل المحدد</h2><div>\\[\\int_{{{latex(a)}}}^{{{latex(b)}}} {latex(expr)}\\,dx = {latex(val)}\\]</div>"
-        cache_set(key, out); return out
+    # مشتقة/تكامل/تبسيط …
+    if "derivative" in res:
+        parts.append(f"<h3>المشتقة:</h3>{_to_latex_safe(res['derivative'])}")
+    if "integral" in res:
+        parts.append(f"<h3>التكامل:</h3>{_to_latex_safe(res['integral'])}")
+    if "definite_integral" in res:
+        parts.append(f"<h3>قيمة التكامل المحدد:</h3><pre>{html.escape(str(res['definite_integral']))}</pre>")
+    if "simplified" in res:
+        parts.append(f"<h3>بعد التبسيط:</h3>{_to_latex_safe(res['simplified'])}")
+    if "factored" in res:
+        parts.append(f"<h3>بعد التحليل:</h3>{_to_latex_safe(res['factored'])}")
 
-    # تكامل غير محدد (لو كتب فقط "تكامل <تعبير>")
-    m = re.search(r"تكامل\s+(.*)", q)
-    if m:
-        expr = sympify(m.group(1), locals=SAFE); F = integrate(expr, X)
-        out = f"<h2>📌 التكامل</h2><div>\\[\\int {latex(expr)}\\,dx = {latex(F)} + C\\]</div>"
-        cache_set(key, out); return out
+    # حلول
+    sols = res.get("solutions")
+    if sols:
+        items = []
+        for s in sols:
+            items.append(_to_latex_safe(s))
+        parts.append("<h3>الحلول:</h3>" + "<div>" + "".join(items) + "</div>")
 
-    # تبسيط/تقييم عام
-    try:
-        expr = sympify(q, locals=SAFE)
-        out = f"<h2>📌 تبسيط/تقييم</h2><div>\\[{latex(expr.simplify())}\\]</div>"
-        cache_set(key, out); return out
-    except Exception as e:
-        out = f"<h2>تعذر فهم المسألة</h2><pre>{html.escape(str(e))}</pre>"
-        cache_set(key, out); return out
+    # خطوات
+    steps = res.get("steps", [])
+    if steps:
+        parts.append("<h3>الخطوات:</h3><ol>" + "".join([f"<li>{html.escape(step.get('text',''))}</li>" for step in steps]) + "</ol>")
 
-# ===== بحث وصور (DuckDuckGo) =====
-try:
-    from duckduckgo_search import DDGS
-except Exception:
-    DDGS = None
+    # قيَم عند نقطة
+    if "value" in res:
+        parts.append(f"<h3>القيمة:</h3><pre>{html.escape(str(res['value']))}</pre>")
+    if "derivative_value" in res:
+        parts.append(f"<h3>قيمة المشتقة عند النقطة:</h3><pre>{html.escape(str(res['derivative_value']))}</pre>")
 
+    # أخطاء
+    if res.get("success") is False or res.get("error"):
+        parts.append(f"<h3>خطأ:</h3><pre>{html.escape(str(res.get('error')))}</pre>")
+
+    return "".join(parts)
+
+# ================================
+# البحث والذكاء الاصطناعي
+# ================================
 def do_web_search(q: str) -> str:
-    key = ("web", q)
-    cached = cache_get(key)
+    key = ("web", q); cached = cache_get(key)
     if cached: return cached
-
     if DDGS is None:
         return "<h2>🔍 البحث غير مُفعل</h2><p>ثبّت duckduckgo_search.</p>"
+
     items = []
     with DDGS() as ddgs:
         for r in ddgs.text(q, max_results=6):
             href = r.get("href",""); title = r.get("title",""); body = r.get("body","")
             items.append(f'<li><a target="_blank" href="{html.escape(href)}">{html.escape(title)}</a><br><small>{html.escape(body)}</small></li>')
+
     out = "<h2>🔍 نتائج البحث</h2><ul class='result'>" + ("\n".join(items) or "<li>لا نتائج</li>") + "</ul>"
     cache_set(key, out)
     return out
 
 def do_image_search(q: str) -> str:
-    key = ("img", q)
-    cached = cache_get(key)
+    key = ("img", q); cached = cache_get(key)
     if cached: return cached
-
     if DDGS is None:
         return "<h2>🖼️ البحث عن الصور غير مُفعل</h2>"
+
     cards = []
     with DDGS() as ddgs:
         for r in ddgs.images(q, max_results=6, size="Medium", license_image="any"):
             src = r.get("image") or r.get("thumbnail")
             if src:
                 cards.append(f"<img src='{html.escape(src)}' width='150' style='margin:6px;border-radius:8px'>")
+
     out = "<h2>🖼️ صور</h2>" + ("".join(cards) or "<p>لا توجد صور</p>")
     cache_set(key, out)
     return out
-
-# ===== الذكاء الاصطناعي (Gemini) + Fallback مجاني =====
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-gemini_ready = False
-if GEMINI_API_KEY:
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=GEMINI_API_KEY)
-        GEMINI_MODEL = genai.GenerativeModel("gemini-1.5-flash")
-        gemini_ready = True
-    except Exception:
-        gemini_ready = False
 
 def simple_summarize(paragraphs, max_sent=6):
     text = " ".join(paragraphs)[:2000]
@@ -243,36 +248,49 @@ def smart_fallback(q: str) -> str:
     return f"<h2>🤖 ملخص ذكي (وضع مجاني)</h2><div>{html.escape(summary)}</div>"
 
 def do_smart(q: str) -> str:
-    if gemini_ready:
+    """يفضّل ai_engine (Gemini) إن توفر، وإلا يستخدم fallback المجاني."""
+    # 1) جرّب ai_engine من core/ لو متاح وفعّال
+    if ai_engine and getattr(ai_engine, "is_gemini_available", None):
         try:
-            prompt = f"أنت بسام الذكي. جاوب بالعربية المبسطة، وبشكل منظم.\n\nسؤال المستخدم:\n{q}"
-            resp = GEMINI_MODEL.generate_content(prompt)
-            text = (getattr(resp, 'text', '') or '').strip()
-            if not text:
-                return smart_fallback(q)
-            html_text = "<br>".join(html.escape(text).splitlines())
-            return f"<h2>🤖 رد الذكاء الاصطناعي</h2><div>{html_text}</div>"
-        except Exception:
-            return smart_fallback(q)
-    else:
-        return smart_fallback(q)
+            if ai_engine.is_gemini_available():
+                data = ai_engine.answer_question(q)  # يعيد dict
+                if data and data.get("answer"):
+                    ans = html.escape(data["answer"]).replace("\n", "<br>")
+                    return f"<h2>🤖 رد الذكاء الاصطناعي</h2><div>{ans}</div>"
+        except Exception as e:
+            print(f"⚠️ ai_engine فشل: {e}")
 
-# ===== المسارات =====
+    # 2) إن لم يتوفر، استخدم fallback المجاني (بحث + تلخيص)
+    return smart_fallback(q)
+
+# ================================
+# المسارات
+# ================================
 @app.get("/", response_class=HTMLResponse)
 async def home():
     return HTMLResponse(HOME_HTML)
 
 @app.post("/search", response_class=HTMLResponse)
 async def search(query: str = Form(...), mode: str = Form("smart")):
-    q = query.strip(); m = mode.strip().lower()
+    q = (query or "").strip()
+    m = (mode or "smart").strip().lower()
+
     if m == "math":
-        body = solve_math(q)
+        if not math_engine:
+            body = "<h2>⚠️ محرك الرياضيات غير متوفر</h2>"
+        else:
+            try:
+                res = math_engine.solve_math_problem(q)  # dict
+                body = render_math_result(res)
+            except Exception as e:
+                body = f"<h2>خطأ في محرك الرياضيات</h2><pre>{html.escape(str(e))}</pre>"
     elif m == "search":
         body = do_web_search(q)
     elif m == "images":
         body = do_image_search(q)
-    else:  # smart
+    else:
         body = do_smart(q)
+
     return HTMLResponse(page_wrap(body, title="نتيجة بسام"))
 
 @app.get("/healthz")
