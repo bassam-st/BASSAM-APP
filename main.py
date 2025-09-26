@@ -1,8 +1,9 @@
-# main.py — Bassam AI (Modular) — يستخدم محركات مجلد core/
+# main.py — Bassam AI (Modular + Fallback Pipeline)
+# - يستورد محركاتك من core/ (math_engine, ai_engine)
 # - عرض رياضي جميل بـ MathJax
-# - محرك الرياضيات من core.math_engine
-# - الذكاء الاصطناعي من core.ai_engine (Gemini) + Fallback مجاني
-# - بحث وصور (DDG) + كاش خفيف
+# - طبقات إجابة: Math → AI → Web (بحث + تلخيص)
+# - كاش خفيف داخل الذاكرة
+# - مسار /healthz لملف render.yaml
 
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse
@@ -12,21 +13,19 @@ import html, os, re, time
 app = FastAPI(title="Bassam AI")
 
 # ===== استيراد محركاتك من core/ =====
-# math_engine: يحتوي الدالة solve_math_problem(query) التي تعيد dict منسّق
-# ai_engine: يحتوي الكائن ai_engine وفيه answer_question() و generate_response()
 try:
-    from core.math_engine import math_engine
+    from core.math_engine import math_engine   # يجب أن يوجَد math_engine = MathEngine()
 except Exception as e:
     math_engine = None
     print(f"⚠️ لم أستطع استيراد core.math_engine: {e}")
 
 try:
-    from core.ai_engine import ai_engine
+    from core.ai_engine import ai_engine       # يجب أن يوجَد ai_engine = AIEngine()
 except Exception as e:
     ai_engine = None
     print(f"⚠️ لم أستطع استيراد core.ai_engine: {e}")
 
-# ===== SymPy (لصياغة LaTeX عند الحاجة) =====
+# ===== SymPy (لاصطلاح LaTeX للعرض الجميل إن احتجنا) =====
 from sympy import sympify, latex
 
 # ===== DuckDuckGo =====
@@ -196,7 +195,7 @@ def render_math_result(res: dict) -> str:
     return "".join(parts)
 
 # ================================
-# البحث والذكاء الاصطناعي
+# البحث والذكاء الاصطناعي (دوال أساسية)
 # ================================
 def do_web_search(q: str) -> str:
     key = ("web", q); cached = cache_get(key)
@@ -237,99 +236,53 @@ def simple_summarize(paragraphs, max_sent=6):
     return " ".join(sentences[:max_sent]) if sentences else text[:400]
 
 def smart_fallback(q: str) -> str:
+    """بحث ويب + تلخيص سريع كبديل مجاني للذكاء الاصطناعي."""
     if DDGS is None:
         return "<h2>🤖 الذكاء غير مفعّل</h2><p>أضف GEMINI_API_KEY أو فعّل duckduckgo_search.</p>"
     hits = []
+    links_html = []
     with DDGS() as ddgs:
         for r in ddgs.text(q, max_results=6):
-            title = r.get("title",""); body = r.get("body","")
-            if title or body: hits.append(f"{title}. {body}")
+            title = r.get("title","") or "نتيجة"
+            body = r.get("body","")
+            href = r.get("href","")
+            if title or body:
+                hits.append(f"{title}. {body}")
+            if href:
+                links_html.append(f'<li><a target="_blank" href="{html.escape(href)}">{html.escape(title)}</a></li>')
     summary = simple_summarize(hits, max_sent=6) or "لم أجد إجابة مؤكدة، جرّب إعادة الصياغة."
-    return f"<h2>🤖 ملخص ذكي (وضع مجاني)</h2><div>{html.escape(summary)}</div>"
-
-def do_smart(q: str) -> str:
-    """يفضّل ai_engine (Gemini) إن توفر، وإلا يستخدم fallback المجاني."""
-    # 1) جرّب ai_engine من core/ لو متاح وفعّال
-    if ai_engine and getattr(ai_engine, "is_gemini_available", None):
-        try:
-            if ai_engine.is_gemini_available():
-                data = ai_engine.answer_question(q)  # يعيد dict
-                if data and data.get("answer"):
-                    ans = html.escape(data["answer"]).replace("\n", "<br>")
-                    return f"<h2>🤖 رد الذكاء الاصطناعي</h2><div>{ans}</div>"
-        except Exception as e:
-            print(f"⚠️ ai_engine فشل: {e}")
-
-    # 2) إن لم يتوفر، استخدم fallback المجاني (بحث + تلخيص)
-    return smart_fallback(q)
+    links_block = "<ul class='result'>" + "".join(links_html) + "</ul>" if links_html else ""
+    return f"<h2>🤖 ملخص ذكي (وضع مجاني)</h2><div>{html.escape(summary)}</div><h3>روابط ذات صلة:</h3>{links_block or '<p>لا روابط كافية</p>'}"
 
 # ================================
-# المسارات
+# طبقات الإجابة (Fallback Pipeline)
 # ================================
-@app.get("/", response_class=HTMLResponse)
-async def home():
-    return HTMLResponse(HOME_HTML)
-
-@app.post("/search", response_class=HTMLResponse)
-async def search(query: str = Form(...), mode: str = Form("smart")):
-    q = (query or "").strip()
-    m = (mode or "smart").strip().lower()
-
-    if m == "math":
-        if not math_engine:
-            body = "<h2>⚠️ محرك الرياضيات غير متوفر</h2>"
-        else:
-            try:
-                res = math_engine.solve_math_problem(q)  # dict
-                body = render_math_result(res)
-            except Exception as e:
-                body = f"<h2>خطأ في محرك الرياضيات</h2><pre>{html.escape(str(e))}</pre>"
-    elif m == "search":
-        body = do_web_search(q)
-    elif m == "images":
-        body = do_image_search(q)
-    else:
-        body = do_smart(q)
-
-    return HTMLResponse(page_wrap(body, title="نتيجة بسام"))
-
-@app.get("/healthz")
-async def healthz():
-    return {"status": "ok"}
-    # ===== طبقات الإجابة (Fallback Pipeline) =====
-
 def _is_good_math_result(res: dict) -> bool:
-    """
-    يقرّر بسرعة إذا نتيجة الرياضيات مفيدة:
-    - فيها حلول/تكامل/مشتقة/تبسيط واضحة
-    - ما هي مجرد رسالة خطأ
-    """
+    """判定 سريع إن كانت نتيجة الرياضيات مفيدة."""
     if not isinstance(res, dict):
         return False
     if res.get("success") is False or res.get("error"):
         return False
-    # أي مفتاح ناتج مفيد:
     useful_keys = {"solutions", "integral", "definite_integral", "derivative", "simplified", "factored", "value"}
     return any(k in res and res[k] not in (None, "", []) for k in useful_keys)
 
 def try_math_first(q: str) -> str | None:
-    """يحاول حل المسألة رياضيًا عبر core.math_engine ثم يُرجع HTML إذا مفيد."""
+    """حاول حل المسألة رياضيًا عبر core.math_engine ثم أرجع HTML إذا مفيد."""
     if not math_engine:
         return None
     try:
         res = math_engine.solve_math_problem(q)  # dict
         if _is_good_math_result(res):
-            return render_math_result(res)  # HTML
+            return render_math_result(res)
     except Exception as e:
         print("Math engine error:", e)
     return None
 
-
 def try_ai_second(q: str) -> str | None:
     """
-    يحاول الذكاء الاصطناعي:
-    - لو ai_engine موجود ومفعّل → يستخدمه
-    - لو مو متوفر → يرجع None عشان ننتقل للبحث
+    جرّب الذكاء الاصطناعي عبر core.ai_engine:
+    - إذا ai_engine موجود ومفعّل → استخدمه
+    - إن لم يتوفر → رجّع None حتى ننتقل لمرحلة الويب
     """
     if ai_engine and getattr(ai_engine, "is_gemini_available", None):
         try:
@@ -342,47 +295,20 @@ def try_ai_second(q: str) -> str | None:
             print("AI engine error:", e)
     return None
 
-
 def try_web_third(q: str) -> str:
-    """بحث ويب + تلخيص كـ 'ذكاء اصطناعي مجاني'."""
-    if DDGS is None:
-        return "<h2>🔍 البحث غير مُفعل</h2><p>ثبّت duckduckgo_search في requirements.txt</p>"
-
-    # اجلب نتائج نصية مختصرة
-    hits = []
-    links_html = []
-    with DDGS() as ddgs:
-        for r in ddgs.text(q, max_results=6):
-            title = r.get("title", "") or "نتيجة"
-            body = r.get("body", "")
-            href = r.get("href", "")
-            if title or body:
-                hits.append(f"{title}. {body}")
-            if href:
-                links_html.append(f'<li><a target="_blank" href="{html.escape(href)}">{html.escape(title)}</a></li>')
-
-    # لخّص سطور النتائج (ملخّص بسيط)
-    summary = simple_summarize(hits, max_sent=6) or "لم أجد إجابة مؤكدة، جرّب إعادة الصياغة أو كلمات مفتاحية أخرى."
-    links_block = "<ul class='result'>" + "".join(links_html) + "</ul>" if links_html else ""
-
-    return f"""
-    <h2>🤖 ملخص ذكي (وضع مجاني)</h2>
-    <div>{html.escape(summary)}</div>
-    <h3>روابط ذات صلة:</h3>
-    {links_block if links_block else "<p>لا روابط كافية</p>"}
-    """
-
+    """بحث ويب + تلخيص (بديل مجاني)."""
+    return smart_fallback(q)
 
 def answer_pipeline(q: str, mode: str) -> str:
     """
     الاستراتيجية المطلوبة:
-      - لو وضع Math → Math → AI → Web
-      - لو وضع Smart → AI → Web (وممكن Math إذا السؤال واضح أنه رياضي)
-      - لو وضع Search/Images تبقى وظائفها كما هي
+      - Math:    Math → AI → Web
+      - Smart:   (لو السؤال رياضي) Math → AI → Web، وإلا AI → Web
+      - Search:  بحث
+      - Images:  صور
     """
     m = (mode or "smart").strip().lower()
 
-    # Math mode صريح
     if m == "math":
         html_math = try_math_first(q)
         if html_math: return html_math
@@ -390,24 +316,37 @@ def answer_pipeline(q: str, mode: str) -> str:
         if html_ai: return html_ai
         return try_web_third(q)
 
-    # Smart mode: أولًا AI، ولو باين سؤال رياضي جرّب Math قبل/بعد
     if m == "smart":
-        # heuristic بسيط: لو فيه كلمات رياضيات جرّب Math أول
+        # heuristic بسيط: لو فيه إشارات رياضية، جرّب Math أولًا
         if re.search(r"(حل|تكامل|اشتق|مشتق|معادلة|^f\(x\)|\=|\*\*|sqrt|sin|cos|tan|log|ln)", q):
             html_math = try_math_first(q)
             if html_math: return html_math
-
         html_ai = try_ai_second(q)
         if html_ai: return html_ai
-
-        # لو الذكاء مو متاح → أرجع للبحث + تلخيص
         return try_web_third(q)
 
-    # Search / Images: نستخدم الدوال الأصلية
     if m == "search":
         return do_web_search(q)
+
     if m == "images":
         return do_image_search(q)
 
-    # افتراضيًا:
     return try_web_third(q)
+
+# ================================
+# المسارات
+# ================================
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    return HTMLResponse(HOME_HTML)
+
+# 👇 هذا هو الراوت الذي سألت عنه — مُدمج وجاهز
+@app.post("/search", response_class=HTMLResponse)
+async def search(query: str = Form(...), mode: str = Form("smart")):
+    q = (query or "").strip()
+    body = answer_pipeline(q, mode)
+    return HTMLResponse(page_wrap(body, title="نتيجة بسام"))
+
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
