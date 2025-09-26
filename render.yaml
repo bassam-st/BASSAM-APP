@@ -1,27 +1,26 @@
 services:
-- buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-  disk:
-    mountPath: /opt/render/project/src/cache
-    name: bassam-cache
-    sizeGB: 1
+- type: web
+  name: bassam-smart-ai
+  runtime: python
+  region: oregon
+  plan: free
+
+  buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+  startCommand: gunicorn -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 1 --timeout 120 main:app
+
   envVars:
   - key: PYTHON_VERSION
     value: 3.11.7
   - key: PYTHONUNBUFFERED
-    value: '1'
+    value: "1"
   - key: WEB_CONCURRENCY
-    value: '1'
-  - key: MAX_WORKERS
-    value: '1'
-  - key: CACHE_SIZE_MB
-    value: '50'
-  - key: ENABLE_LOCAL_MODELS
-    value: 'false'
-  healthCheckPath: /health
-  name: bassam-smart-ai
-  plan: free
-  region: oregon
-  runtime: python
-  startCommand: gunicorn -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers
-    1 --timeout 120 main:app
-  type: web
+    value: "1"
+
+  # صحّح مسار الصحة ليتطابق مع الكود
+  healthCheckPath: /healthz
+
+  # قرص مؤقت (اختياري وخفيف)
+  disk:
+    name: bassam-cache
+    mountPath: /opt/render/project/src/cache
+    sizeGB: 1
