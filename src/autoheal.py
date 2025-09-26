@@ -10,7 +10,7 @@ SYM_FIXES = {
 
 MATH_WORDS = {
     "جذر": "sqrt", "جذر(": "sqrt(", "لوغاريتم": "log",
-    "جيب": "sin", "جيب تمام": "cos", "ظل": "tan",
+    "جيب تمام": "cos", "جيب": "sin", "ظل": "tan",
 }
 
 def normalize_math_text(q: str) -> str:
@@ -21,12 +21,10 @@ def normalize_math_text(q: str) -> str:
     # كلمات عربية → دوال
     for k, v in MATH_WORDS.items():
         s = s.replace(k, v)
-    # مضاعفة النجمة لو استُخدم ^ للقوة
-    s = re.sub(r"(\d|\w)\s*\^\s*(\d|\w)", r"\1**\2", s)
-    # ضرب ضمني بسيط: 2x → 2*x  ،  (x)(x+1) → (x)*(x+1)
+    # 2x → 2*x  ، (x)(x+1) → (x)*(x+1)
     s = re.sub(r"(\d)([a-zA-Z\(])", r"\1*\2", s)
     s = re.sub(r"(\))(\()", r"\1*\2", s)
-    # توحيد كلمات الأوامر
+    # توحيد أوامر عربية
     s = s.replace("بسط", "بسّط").replace("حلل", "حلّل")
     return s
 
