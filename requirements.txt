@@ -6,3 +6,4 @@ duckduckgo_search
 google-generativeai
 python-multipart
 jinja2
+httpx
