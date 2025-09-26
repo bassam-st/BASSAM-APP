@@ -1,45 +1,19 @@
-# bassam_brain.py — نواة بسام الذكي (نسخة أولية مجانية)
-# تعمل محلياً باستخدام TinyLlama أو Mistral (مفتوح المصدر)
-
+# bassam_brain.py
 import os
 from pathlib import Path
-from llama_cpp import Llama
 
-# --- تحميل النموذج (مرن) ---
+# مكان النواة
+MODEL_PATH = os.getenv("BASSAM_MODEL", "models/tinyllama-1.1b-chat.gguf")
+
 def load_model():
-    # المجلد الذي فيه النموذج
-    model_path = os.getenv("BASSAM_MODEL", "models/tinyllama-1.1b-chat.gguf")
-
-    if not Path(model_path).exists():
+    if not Path(MODEL_PATH).exists():
         raise FileNotFoundError(
-            f"⚠️ لم أجد النموذج في: {model_path}\n"
-            "↪ نزّل TinyLlama من HuggingFace وضعه داخل مجلد models/"
+            f"⚠️ النموذج غير موجود في {MODEL_PATH}. "
+            "نزّل النموذج وضعه في المجلد models أو عدّل الرابط."
         )
+    print(f"✅ تم تحميل النموذج من: {MODEL_PATH}")
+    # هنا تضيف كود تشغيل النموذج (مثلاً باستخدام llama.cpp أو مكتبة أخرى)
 
-    llm = Llama(
-        model_path=model_path,
-        n_ctx=2048,   # طول السياق
-        n_threads=4,  # عدّل حسب جهازك
-        n_batch=256
-    )
-    return llm
-
-# --- كائن عالمي للنموذج ---
-_model = None
-
-def init_brain():
-    global _model
-    if _model is None:
-        _model = load_model()
-
-# --- واجهة بسيطة: سؤال ↔ جواب ---
-def ask_brain(prompt: str, system: str = "أنت بسام الذكي. جاوب بالعربية المبسطة."):
-    init_brain()
-    response = _model(
-        prompt=f"{system}\n\nسؤال المستخدم:\n{prompt}",
-        max_tokens=400,
-        temperature=0.4,
-        stop=["</s>"]
-    )
-    text = response["choices"][0]["text"].strip()
-    return text
+def ask_brain(prompt: str) -> str:
+    # حالياً مجرد رد تجريبي
+    return f"🤖 (تجريبي) استلمت سؤالك: {prompt}"
