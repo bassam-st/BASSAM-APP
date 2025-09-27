@@ -1,47 +1,50 @@
-# main.py — تطبيق بسام الذكي (نمط Smart واحد)
+# main.py — تطبيق بسّام الذكي (نسخة Smart مع محادثة خفيفة)
 
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from pydantic import BaseModel
 
-# نواة الذكاء
-from src.brain import safe_run
+# الدماغ
+from src.brain import safe_run, chat_run
 
-app = FastAPI(title="BASSAM AI", version="0.2")
+app = FastAPI(title="Bassam الذكي", version="0.2")
 
-# ربط الملفات الثابتة والقوالب
+# ملفات ثابتة وقوالب
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
 
 # الصفحة الرئيسية
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request, answer: str | None = None):
-    return templates.TemplateResponse("index.html", {"request": request, "answer": answer})
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
-# معالجة الفورم (زر ابدأ)
+# نموذج POST من الواجهة (زر ابدأ)
 @app.post("/search", response_class=HTMLResponse)
 async def search(request: Request, query: str = Form(...)):
-    try:
-        answer = safe_run(query)
-    except Exception as e:
-        answer = f"حدث خطأ غير متوقع: {e}"
-    return templates.TemplateResponse("index.html", {"request": request, "answer": answer})
+    # نستخدم جلسة عامة للواجهة البسيطة
+    answer = chat_run("web", query)
+    return templates.TemplateResponse(
+        "index.html",
+        {"request": request, "answer": answer, "original": query},
+    )
 
 
-# API بسيطة للاستفسار عبر رابط
-@app.get("/ask")
-async def ask(query: str):
-    try:
-        result = safe_run(query)
-        return JSONResponse({"query": query, "result": result})
-    except Exception as e:
-        return JSONResponse({"query": query, "result": f'error: {e}'})
+# واجهة محادثة برمجية (للاستخدام مستقبلاً من JS أو تطبيق خارجي)
+class ChatIn(BaseModel):
+    session_id: str
+    message: str
+
+@app.post("/chat")
+async def chat_api(payload: ChatIn):
+    answer = chat_run(payload.session_id, payload.message)
+    return {"answer": answer}
 
 
-# فحص صحة
+# فحص الصحة
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
