@@ -9,8 +9,5 @@ readability-lxml
 sumy
 rank-bm25
 rapidfuzz
-numpy
-psycopg2-binary
-diskcache
-fpdf
 sympy
+diskcache
