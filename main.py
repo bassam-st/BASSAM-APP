@@ -1,50 +1,59 @@
-# main.py — نقطة تشغيل تطبيق بسام الذكي (نمط واحد: smart)
+# main.py — نقطة تشغيل تطبيق بسام الذكي (نمط ذكي فقط)
 
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-# الدالة الذكية (نمط smart فقط)
+# استدعاء النظام الذكي من brain
 from src.brain import safe_run
 
-app = FastAPI(title="Bassam الذكي", version="0.2")
+# إنشاء التطبيق
+app = FastAPI(title="Bassam الذكي", version="1.0")
 
-# ربط الملفات الثابتة والقوالب
+# ربط الملفات الثابتة (CSS / صور / JS)
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# مجلد القوالب
 templates = Jinja2Templates(directory="templates")
 
 
-# الصفحة الرئيسية (تعرض النموذج + النتيجة إن وُجدت)
+# الصفحة الرئيسية
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "result": None, "query": ""})
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
-# استقبال النموذج (نمط واحد smart)
-@app.post("/search", response_class=HTMLResponse)
+# استقبال استفسار المستخدم عبر النموذج (POST)
+@app.post("/search")
 async def search(request: Request, query: str = Form(...)):
     try:
         result = safe_run(query)
         return templates.TemplateResponse(
             "index.html",
-            {"request": request, "result": result, "query": query}
+            {"request": request, "query": query, "result": result}
         )
     except Exception as e:
         return templates.TemplateResponse(
             "index.html",
-            {"request": request, "result": f"حدث خطأ غير متوقع: {e}", "query": query}
+            {"request": request, "query": query, "result": f"حدث خطأ: {e}"}
         )
 
 
-# واجهة API بسيطة للاستعلام المباشر
+# إعادة توجيه GET /search → الصفحة الرئيسية
+@app.get("/search")
+async def search_redirect():
+    return RedirectResponse(url="/", status_code=303)
+
+
+# واجهة API مباشرة (للإختبار عبر الرابط)
 @app.get("/ask")
 async def ask(query: str):
     try:
         result = safe_run(query)
         return JSONResponse({"query": query, "result": result})
     except Exception as e:
-        return JSONResponse({"query": query, "result": f"error: {e}"})
+        return JSONResponse({"query": query, "result": f"تم التقاط خطأ: {e}"})
 
 
 # فحص الصحة
