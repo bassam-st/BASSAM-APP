@@ -1,8 +1,10 @@
-sympy
-rapidfuzz
 duckduckgo-search
 httpx
 beautifulsoup4
 readability-lxml
 sumy
+rapidfuzz
 diskcache
+sympy
+praw        # فقط إذا أردت Reddit الرسمي (يتطلب مفاتيح)
+google-api-python-client  # إذا أردت YouTube Data API
