@@ -5,28 +5,28 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>🤖 بسام الذكي</title>
   <style>
-    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f0f3ff;margin:0;padding:0;text-align:center;direction:rtl}
-    header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:30px 10px;border-bottom:4px solid #4f46e5}
-    h1{margin:0;font-size:32px}
-    p{margin:6px 0 0;font-size:16px;opacity:.9}
-    main{padding:25px}
-    input[type=text]{width:90%;max-width:400px;padding:12px;margin-top:12px;border-radius:10px;border:2px solid #ddd;font-size:15px}
-    button{background:#4f46e5;color:#fff;border:0;padding:12px 18px;margin:10px;border-radius:10px;cursor:pointer;font-size:16px}
+    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#eef1ff;margin:0;padding:0;text-align:center;direction:rtl}
+    header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:35px 10px;border-bottom:4px solid #4f46e5}
+    h1{margin:0;font-size:34px}
+    p{margin:6px 0 0;font-size:17px;opacity:.9}
+    main{padding:30px}
+    input[type=text]{width:90%;max-width:420px;padding:14px;margin-top:12px;border-radius:10px;border:2px solid #ddd;font-size:16px}
+    button{background:#4f46e5;color:#fff;border:0;padding:14px 20px;margin:12px;border-radius:10px;cursor:pointer;font-size:17px;font-weight:bold}
     button:hover{background:#4338ca}
-    footer{margin-top:30px;padding:12px;color:#666;font-size:14px;border-top:1px solid #ddd}
+    footer{margin-top:35px;padding:12px;color:#666;font-size:14px;border-top:1px solid #ddd}
   </style>
 </head>
 <body>
 
 <header>
   <h1>🤖 بسام الذكي</h1>
-  <p>مساعد عربي مجاني — للرياضيات، البحث، والإجابات الذكية</p>
+  <p>مساعد عربي مجاني — للمحادثة، البحث، والرياضيات</p>
 </header>
 
 <main>
-  <form method="post" action="/search">
+  <form onsubmit="goToChat(event)">
     <label>✍️ اكتب سؤالك أو مسألتك:</label><br>
-    <input name="query" type="text" placeholder="مثال: حل x**2 + 3*x - 2 = 0 أو ما هي عاصمة اليمن؟">
+    <input id="userInput" type="text" placeholder="مثال: ما هي عاصمة اليمن؟ | حل x**2 + 3*x - 2 = 0" required>
     <div style="margin-top:10px;font-size:13px;color:#555">
       تلميح: استخدم <b>x**2</b> للأسس، <b>sqrt(x)</b> للجذر، <b>pi</b> لثابت π.
     </div>
@@ -40,8 +40,19 @@
 </main>
 
 <footer>
-  BASSAM AI — نسخة محسّنة وذكية 💡
+  BASSAM AI — نسخة مطوّرة وذكية 💡
 </footer>
+
+<script>
+function goToChat(e){
+  e.preventDefault();
+  const q = document.getElementById('userInput').value.trim();
+  if(q){
+    // أرسل السؤال إلى واجهة المحادثة
+    window.location.href = `/chatui?query=${encodeURIComponent(q)}`;
+  }
+}
+</script>
 
 </body>
 </html>
