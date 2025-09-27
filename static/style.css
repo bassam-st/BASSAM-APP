@@ -1,0 +1,30 @@
+body {
+  font-family: "Tajawal", sans-serif;
+  background-color: #f9f9f9;
+  color: #222;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+}
+
+header {
+  background-color: #0078d7;
+  color: white;
+  padding: 15px;
+  font-size: 22px;
+  font-weight: bold;
+}
+
+button {
+  background-color: #0078d7;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+button:hover {
+  background-color: #005fa3;
+}
