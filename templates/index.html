@@ -20,6 +20,7 @@
     .btn{width:100%;padding:14px;border:0;border-radius:12px;background:#4f46e5;color:#fff;font-weight:700;font-size:16px;cursor:pointer}
     .hint{font-size:12px;color:#555}
     .footer{padding:14px 22px;border-top:1px solid #f0f2f7;color:#6b7280;text-align:center}
+    .result{margin-top:16px;border:2px solid #e8ebf2;border-radius:12px;padding:14px;min-height:60px;white-space:pre-wrap}
   </style>
 </head>
 <body>
@@ -28,33 +29,63 @@
     <h1>🤖 بسام الذكي</h1>
     <p>مساعد مجاني للرياضيات، البحث، والصور — باللغة العربية</p>
   </div>
+
   <div class="content">
-    <form method="post" action="/search">
-      <label>✍️ اكتب سؤالك أو مسألتك:</label>
-      <input name="query" type="text" required placeholder="مثال: حل 2*x**2 + 3*x - 2 = 0 | اشتق x*sin(x) | تكامل cos(x)">
-      <div class="hint">تلميح: استخدم <b>x**2</b> للأسس، <b>sqrt(x)</b> للجذر، <b>pi</b> لِـπ.</div>
-      
-      <div class="mode" id="modeBox">
-        <label class="active"><input style="display:none" type="radio" name="mode" value="smart" checked>🤖 ذكي</label>
-        <label><input style="display:none" type="radio" name="mode" value="math">📊 رياضيات</label>
-        <label><input style="display:none" type="radio" name="mode" value="search">🔎 بحث</label>
-        <label><input style="display:none" type="radio" name="mode" value="images">🖼️ صور</label>
-      </div>
-      
-      <button class="btn">🚀 ابدأ</button>
-    </form>
+    <!-- لم نعد نرسل للنهاية /search -->
+    <label for="question">✍️ اكتب سؤالك أو مسألتك:</label>
+    <input id="question" type="text" required
+           placeholder="مثال: حل 2*x**2 + 3*x - 2 = 0 | اشتق x*sin(x) | تكامل cos(x)">
+    <div class="hint">تلميح: استخدم <b>x**2</b> للأسس، <b>sqrt(x)</b> للجذر، <b>pi</b> لِـπ.</div>
+
+    <div class="mode" id="modeBox">
+      <label class="active"><input style="display:none" type="radio" name="mode" value="smart" checked>🤖 ذكي</label>
+      <label><input style="display:none" type="radio" name="mode" value="math">📊 رياضيات</label>
+      <label><input style="display:none" type="radio" name="mode" value="search">🔎 بحث</label>
+      <label><input style="display:none" type="radio" name="mode" value="images">🖼️ صور</label>
+    </div>
+
+    <button class="btn" onclick="sendQuestion()">🚀 ابدأ</button>
+
+    <div id="result" class="result">النتيجة ستظهر هنا…</div>
   </div>
+
   <div class="footer">BASSAM AI — نسخة مجانية وخفيفة</div>
 </div>
 
 <script>
-document.querySelectorAll('#modeBox label').forEach(l=>{
-  l.addEventListener('click', ()=>{
-    document.querySelectorAll('#modeBox label').forEach(x=>x.classList.remove('active'));
-    l.classList.add('active'); 
-    l.querySelector('input').checked = true;
-  })
-})
+  // تبديل المظهر النشط بصريًا
+  document.querySelectorAll('#modeBox label').forEach(l=>{
+    l.addEventListener('click', ()=>{
+      document.querySelectorAll('#modeBox label').forEach(x=>x.classList.remove('active'));
+      l.classList.add('active');
+      l.querySelector('input').checked = true;
+    });
+  });
+
+  async function sendQuestion() {
+    const input = document.getElementById('question');
+    const q = (input.value || '').trim();
+    if (!q) return;
+
+    // نبقي اختيار النمط للاستخدام لاحقًا إن أحببت
+    const mode = document.querySelector('input[name="mode"]:checked')?.value || 'smart';
+
+    const url = `${window.location.origin}/ask?query=${encodeURIComponent(q)}`;
+    const resultBox = document.getElementById('result');
+    resultBox.textContent = '⏳ جاري المعالجة...';
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+
+      // الخادم يعيد {"query": "...", "result": "..."} أو مصفوفة
+      const text = Array.isArray(data.result) ? data.result.join(' — ') : String(data.result ?? '');
+      resultBox.textContent = text || 'لا توجد نتيجة.';
+    } catch (e) {
+      resultBox.textContent = 'حدث خطأ أثناء الاتصال بالخادم: ' + e.message;
+    }
+  }
 </script>
 </body>
 </html>
