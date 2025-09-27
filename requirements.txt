@@ -1,8 +1,8 @@
 fastapi
 uvicorn
-httpx
 jinja2
 python-multipart
+httpx
 duckduckgo-search
 beautifulsoup4
 readability-lxml
@@ -10,3 +10,4 @@ sumy
 sympy
 diskcache
 lxml
+openai
