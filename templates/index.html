@@ -1,91 +1,49 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>🤖 بسام الذكي</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f5f7ff;line-height:1.6}
-    .container{max-width:900px;margin:30px auto;background:#fff;border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.08);overflow:hidden}
+    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f5f7ff;line-height:1.7;color:#111}
+    .container{max-width:900px;margin:28px auto;background:#fff;border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.08);overflow:hidden}
     .header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:28px 24px;text-align:center}
     .header h1{margin:0;font-size:30px}
-    .header p{margin-top:8px;opacity:.9}
+    .header p{margin-top:8px;opacity:.95}
     .content{padding:22px}
     label{font-weight:600;color:#222}
-    input[type=text]{width:100%;padding:14px;border:2px solid #e8ebf2;border-radius:12px;margin:8px 0;font-size:16px}
-    .mode{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin:16px 0}
-    .mode label{display:flex;align-items:center;justify-content:center;gap:8px;border:2px solid #e8ebf2;border-radius:12px;padding:10px;cursor:pointer}
-    .mode .active{background:#667eea;color:#fff;border-color:#667eea}
+    input[type=text]{width:100%;padding:14px;border:2px solid #e8ebf2;border-radius:12px;margin:10px 0 14px;font-size:16px}
     .btn{width:100%;padding:14px;border:0;border-radius:12px;background:#4f46e5;color:#fff;font-weight:700;font-size:16px;cursor:pointer}
-    .hint{font-size:12px;color:#555}
+    .btn:disabled{opacity:.7;cursor:not-allowed}
+    .hint{font-size:12px;color:#555;margin-top:-6px}
+    .result{margin-top:18px;border:2px solid #eef1f7;border-radius:12px;padding:14px;background:#fafbff;white-space:pre-wrap}
     .footer{padding:14px 22px;border-top:1px solid #f0f2f7;color:#6b7280;text-align:center}
-    .result{margin-top:16px;border:2px solid #e8ebf2;border-radius:12px;padding:14px;min-height:60px;white-space:pre-wrap}
   </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
     <h1>🤖 بسام الذكي</h1>
-    <p>مساعد مجاني للرياضيات، البحث، والصور — باللغة العربية</p>
+    <p>نمط واحد مُحسَّن (Smart) — نسخة مجانية وخفيفة</p>
   </div>
 
   <div class="content">
-    <!-- لم نعد نرسل للنهاية /search -->
-    <label for="question">✍️ اكتب سؤالك أو مسألتك:</label>
-    <input id="question" type="text" required
-           placeholder="مثال: حل 2*x**2 + 3*x - 2 = 0 | اشتق x*sin(x) | تكامل cos(x)">
-    <div class="hint">تلميح: استخدم <b>x**2</b> للأسس، <b>sqrt(x)</b> للجذر، <b>pi</b> لِـπ.</div>
+    <form method="post" action="/search" onsubmit="submitBtn.disabled=true">
+      <label>✍️ اكتب سؤالك أو مسألتك:</label>
+      <input name="query" type="text" value="{{ query }}" required placeholder="مثال: احسب sqrt(9) + 2*pi | أين تقع اليمن؟" />
+      <div class="hint">تلميح رياضي: استخدم <b>x**2</b> للأسس، <b>sqrt(…)</b> للجذر، <b>pi</b> لِـπ.</div>
+      <button id="submitBtn" class="btn">🚀 ابدأ</button>
+    </form>
 
-    <div class="mode" id="modeBox">
-      <label class="active"><input style="display:none" type="radio" name="mode" value="smart" checked>🤖 ذكي</label>
-      <label><input style="display:none" type="radio" name="mode" value="math">📊 رياضيات</label>
-      <label><input style="display:none" type="radio" name="mode" value="search">🔎 بحث</label>
-      <label><input style="display:none" type="radio" name="mode" value="images">🖼️ صور</label>
+    {% if result %}
+    <div class="result">
+      {{ result }}
     </div>
-
-    <button class="btn" onclick="sendQuestion()">🚀 ابدأ</button>
-
-    <div id="result" class="result">النتيجة ستظهر هنا…</div>
+    {% endif %}
   </div>
 
-  <div class="footer">BASSAM AI — نسخة مجانية وخفيفة</div>
+  <div class="footer">BASSAM AI — Free & Lightweight</div>
 </div>
-
-<script>
-  // تبديل المظهر النشط بصريًا
-  document.querySelectorAll('#modeBox label').forEach(l=>{
-    l.addEventListener('click', ()=>{
-      document.querySelectorAll('#modeBox label').forEach(x=>x.classList.remove('active'));
-      l.classList.add('active');
-      l.querySelector('input').checked = true;
-    });
-  });
-
-  async function sendQuestion() {
-    const input = document.getElementById('question');
-    const q = (input.value || '').trim();
-    if (!q) return;
-
-    // نبقي اختيار النمط للاستخدام لاحقًا إن أحببت
-    const mode = document.querySelector('input[name="mode"]:checked')?.value || 'smart';
-
-    const url = `${window.location.origin}/ask?query=${encodeURIComponent(q)}`;
-    const resultBox = document.getElementById('result');
-    resultBox.textContent = '⏳ جاري المعالجة...';
-
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-
-      // الخادم يعيد {"query": "...", "result": "..."} أو مصفوفة
-      const text = Array.isArray(data.result) ? data.result.join(' — ') : String(data.result ?? '');
-      resultBox.textContent = text || 'لا توجد نتيجة.';
-    } catch (e) {
-      resultBox.textContent = 'حدث خطأ أثناء الاتصال بالخادم: ' + e.message;
-    }
-  }
-</script>
 </body>
 </html>
