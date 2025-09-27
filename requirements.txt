@@ -1,10 +1,25 @@
-duckduckgo-search
+fastapi
+uvicorn
+jinja2
+python-multipart
+
 httpx
 beautifulsoup4
 readability-lxml
+duckduckgo-search
+
 sumy
+rank-bm25
 rapidfuzz
-diskcache
+numpy
 sympy
-praw        # فقط إذا أردت Reddit الرسمي (يتطلب مفاتيح)
-google-api-python-client  # إذا أردت YouTube Data API
+
+diskcache
+fpdf
+
+# أمان وثبات
+anyio
+certifi
+idna
+urllib3
+tqdm
