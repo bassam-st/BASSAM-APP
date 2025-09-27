@@ -1,60 +1,32 @@
-# main.py — نقطة تشغيل تطبيق بسام الذكي (نمط ذكي فقط)
+# main.py — نقطة تشغيل تطبيق بسام الذكي (Smart)
 
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, PlainTextResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-# استدعاء النظام الذكي من brain
 from src.brain import safe_run
 
-# إنشاء التطبيق
-app = FastAPI(title="Bassam الذكي", version="1.0")
+app = FastAPI(title="Bassam الذكي", version="0.2")
 
-# ربط الملفات الثابتة (CSS / صور / JS)
+# ملفات ثابتة وقوالب
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# مجلد القوالب
 templates = Jinja2Templates(directory="templates")
-
 
 # الصفحة الرئيسية
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+# استدعاء الذكاء - من النموذج (POST)
+@app.post("/ask", response_class=PlainTextResponse)
+async def ask_form(query: str = Form(...)):
+    return safe_run(query)
 
-# استقبال استفسار المستخدم عبر النموذج (POST)
-@app.post("/search")
-async def search(request: Request, query: str = Form(...)):
-    try:
-        result = safe_run(query)
-        return templates.TemplateResponse(
-            "index.html",
-            {"request": request, "query": query, "result": result}
-        )
-    except Exception as e:
-        return templates.TemplateResponse(
-            "index.html",
-            {"request": request, "query": query, "result": f"حدث خطأ: {e}"}
-        )
-
-
-# إعادة توجيه GET /search → الصفحة الرئيسية
-@app.get("/search")
-async def search_redirect():
-    return RedirectResponse(url="/", status_code=303)
-
-
-# واجهة API مباشرة (للإختبار عبر الرابط)
-@app.get("/ask")
-async def ask(query: str):
-    try:
-        result = safe_run(query)
-        return JSONResponse({"query": query, "result": result})
-    except Exception as e:
-        return JSONResponse({"query": query, "result": f"تم التقاط خطأ: {e}"})
-
+# استدعاء الذكاء - من الرابط (GET) لأغراض الاختبار السريع
+@app.get("/ask", response_class=PlainTextResponse)
+async def ask_get(query: str):
+    return safe_run(query)
 
 # فحص الصحة
 @app.get("/healthz")
