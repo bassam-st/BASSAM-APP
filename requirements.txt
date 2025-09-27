@@ -1,25 +1,36 @@
 fastapi
 uvicorn
-httpx
 jinja2
 python-multipart
 
-duckduckgo-search
+# البحث والتلخيص
+duckduckgo_search
 beautifulsoup4
 readability-lxml
-
 sumy
-pyarabic
-
-rapidfuzz
 rank-bm25
-
-sympy
-numpy
-diskcache
-
+rapidfuzz
 wikipedia
 googletrans==4.0.0-rc1
 
+# الذكاء الاصطناعي
+google-generativeai
+
+# الرياضيات والعمليات المنطقية
+sympy
+numpy
+
+# التخزين المؤقت
+diskcache
+
+# قاعدة البيانات
 psycopg2-binary
+
+# إنشاء ملفات PDF
 fpdf
+
+# اللغة العربية
+pyarabic
+
+# الطلبات الشبكية
+httpx
