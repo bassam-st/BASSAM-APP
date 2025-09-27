@@ -1,13 +1,14 @@
-# main.py — نقطة تشغيل تطبيق بسام الذكي (Smart: رياضيات + عقل/بحث)
+# main.py — تطبيق بسام الذكي (نمط Smart واحد)
 
 from fastapi import FastAPI, Request, Form
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, PlainTextResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+# نواة الذكاء
 from src.brain import safe_run
 
-app = FastAPI(title="Bassam الذكي", version="1.1")
+app = FastAPI(title="BASSAM AI", version="0.2")
 
 # ربط الملفات الثابتة والقوالب
 app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -16,30 +17,31 @@ templates = Jinja2Templates(directory="templates")
 
 # الصفحة الرئيسية
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-# معالجة النموذج (الزر 🚀 في index.html يرسل POST إلى /search)
-@app.post("/search", response_class=HTMLResponse)
-async def search(request: Request, query: str = Form(...)):
-    answer = safe_run(query)
+async def home(request: Request, answer: str | None = None):
     return templates.TemplateResponse("index.html", {"request": request, "answer": answer})
 
 
-# حماية من فتح /search كـ GET (يعطي 405 عادة) → نعيد توجيه المستخدم للصفحة الرئيسية
-@app.get("/search")
-async def search_get_redirect():
-    return RedirectResponse(url="/", status_code=303)
+# معالجة الفورم (زر ابدأ)
+@app.post("/search", response_class=HTMLResponse)
+async def search(request: Request, query: str = Form(...)):
+    try:
+        answer = safe_run(query)
+    except Exception as e:
+        answer = f"حدث خطأ غير متوقع: {e}"
+    return templates.TemplateResponse("index.html", {"request": request, "answer": answer})
 
 
-# واجهة بسيطة للاختبار عبر الرابط: /ask?query=...
-@app.get("/ask", response_class=PlainTextResponse)
+# API بسيطة للاستفسار عبر رابط
+@app.get("/ask")
 async def ask(query: str):
-    return safe_run(query)
+    try:
+        result = safe_run(query)
+        return JSONResponse({"query": query, "result": result})
+    except Exception as e:
+        return JSONResponse({"query": query, "result": f'error: {e}'})
 
 
-# فحص الصحة
+# فحص صحة
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
