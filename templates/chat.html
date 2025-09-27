@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>🤖 بسّام الذكي</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f5f7ff;line-height:1.6}
+    .container{max-width:900px;margin:30px auto;background:#fff;border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.08);overflow:hidden}
+    .header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:28px 24px;text-align:center}
+    .header h1{margin:0;font-size:30px}
+    .header p{margin-top:8px;opacity:.9}
+    .content{padding:22px}
+    label{font-weight:600;color:#222}
+    input[type=text]{width:100%;padding:14px;border:2px solid #e8ebf2;border-radius:12px;margin:8px 0;font-size:16px}
+    .btn{width:100%;padding:14px;border:0;border-radius:12px;background:#4f46e5;color:#fff;font-weight:700;font-size:16px;cursor:pointer;margin-top:10px}
+    .btn-secondary{background:#6b7280}
+    .hint{font-size:12px;color:#555;margin-top:6px}
+    .footer{padding:14px 22px;border-top:1px solid #f0f2f7;color:#6b7280;text-align:center}
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="header">
+    <h1>🤖 بسّام الذكي</h1>
+    <p>مساعد عربي مجاني لحل المسائل، التلخيص، والبحث الذكي</p>
+  </div>
+
+  <div class="content">
+    <form id="askForm">
+      <label>✍️ اكتب سؤالك أو مسألتك:</label>
+      <input id="query" name="query" type="text" required placeholder="مثال: حل x**2 + 3*x - 2 = 0 | اشتق x*sin(x) | من هو ابن خلدون؟">
+      <div class="hint">💡 تلميح: يمكنك كتابة معادلات أو أسئلة عامة.</div>
+      <button class="btn" type="submit">🚀 أرسل السؤال</button>
+    </form>
+
+    <button onclick="window.location='/chatui'" class="btn btn-secondary">💬 الانتقال إلى المحادثة الذكية</button>
+
+    <div id="result" style="margin-top:16px;padding:14px;border:1px solid #eee;border-radius:12px;white-space:pre-wrap"></div>
+  </div>
+
+  <div class="footer">BASSAM AI — نسخة مجانية مطوّرة v2</div>
+</div>
+
+<script>
+document.getElementById('askForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  const q=document.getElementById('query').value.trim();
+  if(!q)return;
+  const result=document.getElementById('result');
+  result.textContent='⏳ جاري التفكير...';
+  try{
+    const r=await fetch('/ask?query='+encodeURIComponent(q));
+    const data=await r.json();
+    result.textContent=data.result||'⚠️ لا يوجد رد.';
+  }catch(err){
+    result.textContent='⚠️ خطأ في الاتصال بالخادم.';
+  }
+});
+</script>
+</body>
+</html>
