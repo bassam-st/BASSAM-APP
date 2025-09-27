@@ -1,48 +1,48 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>🤖 بسام الذكي</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
-    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f5f7ff;line-height:1.6}
+    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#f5f7ff;line-height:1.6;color:#111}
     .container{max-width:900px;margin:30px auto;background:#fff;border-radius:16px;box-shadow:0 12px 30px rgba(0,0,0,.08);overflow:hidden}
     .header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:28px 24px;text-align:center}
     .header h1{margin:0;font-size:30px}
-    .header p{margin-top:8px;opacity:.9}
+    .header p{margin-top:8px;opacity:.95}
     .content{padding:22px}
     label{font-weight:600;color:#222}
-    input[type=text]{width:100%;padding:14px;border:2px solid #e8ebf2;border-radius:12px;margin:8px 0;font-size:16px}
+    input[type=text]{width:100%;padding:14px;border:2px solid #e8ebf2;border-radius:12px;margin:8px 0 14px;font-size:16px}
     .btn{width:100%;padding:14px;border:0;border-radius:12px;background:#4f46e5;color:#fff;font-weight:700;font-size:16px;cursor:pointer}
-    .hint{font-size:12px;color:#555}
+    .btn:active{transform:translateY(1px)}
+    .hint{font-size:12px;color:#555;margin-top:-6px}
+    .result{margin-top:16px;padding:14px;border:1px solid #eee;border-radius:12px;white-space:pre-wrap;background:#fafbff}
     .footer{padding:14px 22px;border-top:1px solid #f0f2f7;color:#6b7280;text-align:center}
-    .result{margin-top:16px;padding:14px;border:1px solid #eee;border-radius:12px;white-space:pre-wrap;background:#fafafa}
   </style>
 </head>
 <body>
 <div class="container">
   <div class="header">
     <h1>🤖 بسام الذكي</h1>
-    <p>مساعد عربي مجاني — للرياضيات والبحث والإجابات الذكية</p>
+    <p>نمط واحد مُحسّن (Smart) — نسخة مجانية وخفيفة</p>
   </div>
 
   <div class="content">
     <form method="post" action="/search">
       <label>✍️ اكتب سؤالك أو مسألتك:</label>
-      <input name="query" type="text" required placeholder="مثال: حل 2*x**2 + 3*x - 2 = 0 | اشتق x*sin(x) | تكامل cos(x)">
-      <div class="hint">تلميح: استخدم <b>x**2</b> للأسس، <b>sqrt(x)</b> للجذر، <b>pi</b> لِـπ.</div>
+      <input name="query" type="text" required
+             placeholder="مثال: حل x**2 + 3*x - 4 = 0 | اشتق x*sin(x) | ما هي عاصمة اليمن؟" />
+      <div class="hint">تلميح رياضي: استخدم <b>x**2</b> للأسس، <b>sqrt(x)</b> للجذر، <b>pi</b> لـπ، و <b>diff(...)</b> للاشتقاق، <b>integrate(...)</b> للتكامل.</div>
       <button class="btn">🚀 ابدأ</button>
     </form>
 
     {% if answer %}
-      <div class="result">
-        {{ answer }}
-      </div>
+      <div class="result">{{ answer }}</div>
     {% endif %}
   </div>
 
-  <div class="footer">BASSAM AI — نسخة مطوّرة وذكية</div>
+  <div class="footer">BASSAM AI — Free & Lightweight</div>
 </div>
 </body>
 </html>
