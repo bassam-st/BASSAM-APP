@@ -1,21 +1,17 @@
-# main.py — نقطة تشغيل تطبيق بسام الذكي
+# main.py — نقطة تشغيل تطبيق بسام الذكي (نسخة مجانية بالكامل)
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
 
-# استدعاء النظام الذكي من brain
+# الدالة الذكية الموحَّدة
 from src.brain import safe_run
 
-# إنشاء التطبيق
 app = FastAPI(title="Bassam الذكي", version="0.1")
 
-# ربط الملفات الثابتة (CSS/JS/صور)
+# ملفات الواجهة
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# ربط القوالب (HTML)
 templates = Jinja2Templates(directory="templates")
 
 # الصفحة الرئيسية
@@ -23,8 +19,9 @@ templates = Jinja2Templates(directory="templates")
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-# 🧠 مسار الذكاء (GET) — لاختبار مباشر
+# نفس الدالة على مسارين لراحة الواجهة
 @app.get("/ask")
+@app.get("/api/ask")
 async def ask(query: str):
     try:
         result = safe_run(query)
@@ -32,19 +29,7 @@ async def ask(query: str):
     except Exception as e:
         return JSONResponse({"query": query, "result": ["error", f"تم التقاط خطأ: {e}"]})
 
-# 🧠 مسار الذكاء (POST) — يستخدمه الزر في الواجهة
-class AskBody(BaseModel):
-    query: str
-
-@app.post("/api/ask")
-async def api_ask(body: AskBody):
-    try:
-        result = safe_run(body.query)
-        return JSONResponse({"query": body.query, "result": result})
-    except Exception as e:
-        return JSONResponse({"query": body.query, "result": ["error", f"تم التقاط خطأ: {e}"]})
-
-# ✅ فحص الصحة
+# فحص الصحة
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
