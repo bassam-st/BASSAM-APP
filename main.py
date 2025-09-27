@@ -6,7 +6,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 # استدعاء النظام الذكي من brain
-from src.brain import agent
+from src.brain import safe_run
 
 # إنشاء التطبيق
 app = FastAPI(title="Bassam الذكي", version="0.1")
@@ -27,8 +27,11 @@ async def home(request: Request):
 # مسار الذكاء: استفسار المستخدم
 @app.get("/ask")
 async def ask(query: str):
-    result = agent.safe_run(query)
-    return JSONResponse({"query": query, "result": result})
+    try:
+        result = safe_run(query)
+        return JSONResponse({"query": query, "result": result})
+    except Exception as e:
+        return JSONResponse({"query": query, "result": ["error", f"تم التقاط خطأ: {e}"]})
 
 
 # مسار فحص الصحة
