@@ -1,13 +1,8 @@
-fastapi
-uvicorn
-httpx
-jinja2
-python-multipart
+sympy
+rapidfuzz
 duckduckgo-search
+httpx
 beautifulsoup4
 readability-lxml
 sumy
-rank-bm25
-rapidfuzz
-sympy
 diskcache
