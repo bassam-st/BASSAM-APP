@@ -1,50 +1,63 @@
-# main.py — تطبيق بسّام الذكي (نسخة Smart مع محادثة خفيفة)
+# main.py — نقطة تشغيل تطبيق بسام الذكي
 
-from fastapi import FastAPI, Request, Form
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
 
-# الدماغ
-from src.brain import safe_run, chat_run
+# استدعاء النظام الذكي من brain
+from src.brain import safe_run
 
-app = FastAPI(title="Bassam الذكي", version="0.2")
+# إنشاء التطبيق
+app = FastAPI(title="Bassam الذكي", version="1.0")
 
-# ملفات ثابتة وقوالب
+# تفعيل CORS لتطبيق الويب أو الموبايل
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# ربط الملفات الثابتة (CSS/JS/صور)
 app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
 
+# ربط القوالب (HTML)
+templates = Jinja2Templates(directory="templates")
 
 # الصفحة الرئيسية
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+# صفحة واجهة المحادثة التفاعلية
+@app.get("/chatui", response_class=HTMLResponse)
+async def chatui(request: Request):
+    return templates.TemplateResponse("chat.html", {"request": request})
 
-# نموذج POST من الواجهة (زر ابدأ)
-@app.post("/search", response_class=HTMLResponse)
-async def search(request: Request, query: str = Form(...)):
-    # نستخدم جلسة عامة للواجهة البسيطة
-    answer = chat_run("web", query)
-    return templates.TemplateResponse(
-        "index.html",
-        {"request": request, "answer": answer, "original": query},
-    )
+# واجهة الذكاء — البحث أو الرياضيات
+@app.get("/ask")
+async def ask(query: str):
+    try:
+        result = safe_run(query)
+        return JSONResponse({"query": query, "result": result})
+    except Exception as e:
+        return JSONResponse({"query": query, "result": f"⚠️ حدث خطأ أثناء المعالجة: {e}"})
 
-
-# واجهة محادثة برمجية (للاستخدام مستقبلاً من JS أو تطبيق خارجي)
-class ChatIn(BaseModel):
-    session_id: str
-    message: str
-
+# واجهة المحادثة — تستخدمها chat.html
 @app.post("/chat")
-async def chat_api(payload: ChatIn):
-    answer = chat_run(payload.session_id, payload.message)
-    return {"answer": answer}
+async def chat(request: Request):
+    try:
+        data = await request.json()
+        message = data.get("message", "")
+        result = safe_run(message)
+        return JSONResponse({"answer": result})
+    except Exception as e:
+        return JSONResponse({"answer": f"⚠️ حدث خطأ أثناء الرد: {e}"})
 
-
-# فحص الصحة
+# فحص الصحة (لريندر)
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
