@@ -1,4 +1,4 @@
-# main.py — نقطة تشغيل تطبيق بسام الذكي (نسخة متقدمة مع واجهة محادثة)
+# main.py — نقطة تشغيل تطبيق بسّام الذكي (Omni Brain v2.1)
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
@@ -6,13 +6,12 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 
-# استدعاء النظام الذكي من brain
-from src.brain import safe_run
+# استدعاء العقل الموحد (Omni Brain)
+from src.brain.omni_brain import omni_answer
 
-# إنشاء التطبيق
-app = FastAPI(title="Bassam الذكي", version="1.0")
+app = FastAPI(title="Bassam الذكي — Omni Brain v2.1", version="2.1")
 
-# تفعيل CORS (مفيد للربط مع واجهات الموبايل والويب)
+# CORS (للربط مع واجهات الجوال/الويب)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,67 +20,92 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ربط الملفات الثابتة (CSS / JS / صور)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# مجلد القوالب HTML
-templates = Jinja2Templates(directory="templates")
+# محاولة ربط static/templates بشكل آمن (لا يتعطل لو المجلد مفقود)
+try:
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    templates = Jinja2Templates(directory="templates")
+except Exception:
+    templates = None
 
 # ---------------------------
-# الصفحة الرئيسية
+# صفحة رئيسية
 # ---------------------------
+BASIC_HTML = """
+<!doctype html><html lang=ar dir=rtl><meta charset=utf-8>
+<title>بسّام الذكي</title>
+<style>
+body{font-family:'Segoe UI',Tahoma,sans-serif;max-width:760px;margin:24px auto;padding:0 12px;background:#f9fafb;color:#111}
+input,button{font-size:1em;border-radius:10px;border:1px solid #ccc;padding:10px;width:100%}
+button{background:#1e88e5;color:#fff;cursor:pointer;margin-top:8px}
+button:hover{background:#1565c0}
+.answer{margin-top:20px;padding:10px;background:#fff;border-radius:10px;box-shadow:0 2px 6px rgba(0,0,0,0.1)}
+</style>
+<h2>🤖 بسّام الذكي — Omni Brain (مشاعر + جمال + ذكاء)</h2>
+<form method="post" action="/search">
+  <input name="query" placeholder="اكتب سؤالك..." autofocus>
+  <button type="submit">ابدأ 🚀</button>
+</form>
+<p style="margin-top:10px">أو جرّب مباشرة: <a href="/chatui">واجهة المحادثة</a></p>
+</html>
+"""
+
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
-
+    if templates:
+        return templates.TemplateResponse("index.html", {"request": request})
+    return HTMLResponse(BASIC_HTML)
 
 # ---------------------------
-# تحويل زر "ابدأ 🚀" إلى واجهة المحادثة الذكية
+# زر "ابدأ 🚀" يحوّل إلى واجهة المحادثة
 # ---------------------------
 @app.post("/search")
 async def go_chat(request: Request):
     form = await request.form()
-    query = form.get("query", "").strip()
-    # عند الضغط على الزر، ينتقل المستخدم إلى صفحة المحادثة مع تمرير السؤال
+    query = (form.get("query") or "").strip()
     return RedirectResponse(url=f"/chatui?query={query}", status_code=303)
 
-
 # ---------------------------
-# واجهة المحادثة الجديدة (chat.html)
+# واجهة المحادثة (chat.html) — إن لم توجد نعرض بس الصفحة البسيطة
 # ---------------------------
 @app.get("/chatui", response_class=HTMLResponse)
 async def chatui(request: Request):
-    return templates.TemplateResponse("chat.html", {"request": request})
-
+    if templates:
+        return templates.TemplateResponse("chat.html", {"request": request})
+    # fallback بسيط لو ما في قوالب
+    return HTMLResponse(BASIC_HTML)
 
 # ---------------------------
-# مسار الذكاء: يُستخدم من داخل chat.html
+# دالة مساعدة توحّد التنفيذ مع معالجة الأخطاء
+# ---------------------------
+def safe_run(message: str) -> str:
+    try:
+        return omni_answer(message or "")
+    except Exception as e:
+        return f"⚠️ خطأ أثناء المعالجة: {e}"
+
+# ---------------------------
+# مسار الذكاء (يُستخدم من داخل chat.html عبر GET)
 # ---------------------------
 @app.get("/ask")
-async def ask(query: str):
-    try:
-        result = safe_run(query)
-        return JSONResponse({"query": query, "result": result})
-    except Exception as e:
-        return JSONResponse({"query": query, "result": f"⚠️ خطأ أثناء المعالجة: {e}"})
-
+async def ask(query: str = ""):
+    result = safe_run(query)
+    return JSONResponse({"query": query, "result": result})
 
 # ---------------------------
-# واجهة محادثة (POST) — يمكن استخدامها لاحقًا لتطبيق الموبايل
+# مسار محادثة (POST JSON) — مناسب لتطبيق الموبايل/الفرونت
 # ---------------------------
 @app.post("/chat")
 async def chat(request: Request):
     try:
         data = await request.json()
         message = data.get("message", "")
-        result = safe_run(message)
-        return JSONResponse({"answer": result})
-    except Exception as e:
-        return JSONResponse({"answer": f"⚠️ حدث خطأ أثناء الرد: {e}"})
-
+    except Exception:
+        message = ""
+    result = safe_run(message)
+    return JSONResponse({"answer": result})
 
 # ---------------------------
-# مسار فحص الصحة (لـ Render)
+# فحص الصحة (لـ Render)
 # ---------------------------
 @app.get("/healthz")
 async def healthz():
