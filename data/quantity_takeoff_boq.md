@@ -34,3 +34,25 @@ total_conc = sum(b["b"]*b["h"]*b["L"] for b in beams)
 total_steel = total_conc * steel_per_m3
 print("خرسانة (م3):", round(total_conc,2))
 print("حديد (كجم):", round(total_steel,0))
+---
+
+### 5) `construction_method_statements.md`
+```markdown
+# طرق التنفيذ (Method Statements) + ITP
+## MS — صب خرسانة كمرة/بلاطة
+1) مراجعة الاعتماد للرسومات والبار بنت.
+2) تفقد الشدات + مناسيب + نظافة القالب + تسليح + غطاء.
+3) صب بمضخة/خلاطة، هزاز داخلي كل 30–50 سم.
+4) تسوية السطح ومعالجة بالماء ≥ 7 أيام.
+5) إزالة الشدة وفق جدول الأعمار (الكود).
+
+## ITP (Inspection & Test Plan) — نموذج
+- Hold Point: قبل الصب → توقيع الاستشاري.
+- Check Item: القطر/المسافات/الغطاء/الكانات.
+- Records: Cube Tests (7 & 28 days)، تقارير صب، سجلات هزاز.
+
+## QA/QC Checklists
+- Check rebar laps/anchors
+- Embedments/sleeves
+- Form release agent
+- Slump 75–125 mm (كمثال) + حرارة الخرسانة < 32°C
