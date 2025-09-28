@@ -1,30 +1,35 @@
-# ⚙️ الأساس لتطبيق FastAPI
+# =========================
+# Bassam App (v3.1) - requirements.txt
+# =========================
+
+# ⚙️ FastAPI stack
 fastapi>=0.110,<0.120
 uvicorn>=0.30
 jinja2>=3.1
 python-multipart>=0.0.9
 sse-starlette>=2.0.0
 
-# 🌐 الشبكة والويب (ملاحظة: مُثبّت حسب googletrans)
+# 🌐 الشبكة والويب
+# ملاحظة: googletrans==4.0.0-rc1 يعتمد httpx==0.13.x
 httpx==0.13.3
 beautifulsoup4>=4.12
 lxml>=4.9
 readability-lxml>=0.8.1
 duckduckgo_search>=4.5
 
-# 🧠 التلخيص والبحث المحلي الخفيف
+# 🧠 التلخيص والبحث المحلي
 sumy==0.11.0
 rank-bm25>=0.2.2
 rapidfuzz>=3.9
 wikipedia>=1.4.0
 
-# 🌍 الترجمة (تتطلب httpx==0.13.3)
+# 🌍 الترجمة
 googletrans==4.0.0-rc1
 
-# 🤖 اختيارية: واجهة Gemini (إن وجِد المفتاح)
+# 🤖 (اختياري) Gemini
 google-generativeai>=0.7.0
 
-# 🧮 رياضيات وأساسيات
+# 🧮 رياضيات
 sympy>=1.12
 numpy==1.26.4
 
@@ -37,9 +42,10 @@ python-dateutil>=2.9
 # 🇸🇦 عربية (اختياري)
 pyarabic>=0.6.15
 
-# 📚 RAG الخفيف (بديل FAISS/Embeddings)
-scikit-learn>=1.4.2
-# ستجلب تلقائيًا: scipy، joblib، threadpoolctl
+# 📚 RAG الكامل (FAISS + Sentence-Transformers)
+# سيجلب torch و transformers تلقائيًا
+faiss-cpu>=1.7.4,<2
+sentence-transformers>=2.6.1,<3
 
 # 📄 قراءة ملفات PDF
 pymupdf>=1.24.9
