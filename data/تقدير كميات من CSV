@@ -1,0 +1,7 @@
+import csv
+total = 0.0
+with open("boq.csv", encoding="utf-8") as f:
+    for it in csv.DictReader(f):
+        qty = float(it["qty"]); rate = float(it["rate"])
+        total += qty*rate
+print("إجمالي التكلفة:", total)
