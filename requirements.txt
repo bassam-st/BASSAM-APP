@@ -1,42 +1,12 @@
-# =========================
-# Bassam App v3.1 — Ultra Lite (Render Free 512MB)
-# =========================
-
-# FastAPI stack
-fastapi>=0.110,<0.120
-uvicorn>=0.30
-jinja2>=3.1
-python-multipart>=0.0.9
-sse-starlette>=2.0.0
-
-# Web / scraping
-httpx==0.13.3           # متوافق مع googletrans rc1
-beautifulsoup4>=4.12
-lxml>=4.9
-readability-lxml>=0.8.1
-duckduckgo_search>=4.5
-
-# Local summarize & retrieval الخفيف
+fastapi
+uvicorn
+jinja2
+python-multipart
+httpx
+beautifulsoup4
+duckduckgo_search
+readability-lxml
 sumy==0.11.0
-rank-bm25>=0.2.2        # سنستخدمه لاحقًا لـ RAG خفيف فقط
-rapidfuzz>=3.9
-wikipedia>=1.4.0
-
-# Translation
-googletrans==4.0.0-rc1
-
-# Optional: Gemini
-google-generativeai>=0.7.0
-
-# Math / utils (خفيفة نسبيًا)
-sympy>=1.12
-numpy==1.26.4
-diskcache>=5.6.3
-python-dateutil>=2.9
-pyarabic>=0.6.15
-
-# PDF (خفيف نسبيًا)
-pymupdf>=1.24.9
-
-# PDF export (اختياري)
-fpdf>=1.7.2
+diskcache
+wikipedia
+lxml_html_clean
