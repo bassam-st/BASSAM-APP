@@ -1,12 +1,15 @@
 fastapi
 uvicorn
 jinja2
-python-multipart
 httpx
 beautifulsoup4
 duckduckgo_search
 readability-lxml
 sumy==0.11.0
+sympy==1.12
+numpy
+rapidfuzz
+rank-bm25
 diskcache
 wikipedia
-lxml_html_clean
+python-multipart
