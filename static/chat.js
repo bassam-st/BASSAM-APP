@@ -1,58 +1,87 @@
-// chat.js — محادثة بسام الذكي (واجهة المستخدم + بث حي)
+(function () {
+  const chat = document.getElementById("chat");
+  const qEl  = document.getElementById("q");
+  const userEl = document.getElementById("user");
 
-const chatBox = document.getElementById("chat-box");
-const input = document.getElementById("user-input");
-const sendBtn = document.getElementById("send-btn");
+  // حمّل الاسم المخزَّن محليًا
+  const saved = localStorage.getItem("bassam_user") || "guest";
+  userEl.value = saved;
 
-// إضافة رسالة في واجهة المحادثة
-function appendMessage(sender, text) {
-  const msg = document.createElement("div");
-  msg.className = sender === "user" ? "msg user" : "msg bot";
-  msg.innerHTML = `<b>${sender === "user" ? "🧑‍💻 أنت" : "🤖 بسّام"}:</b> ${text}`;
-  chatBox.appendChild(msg);
-  chatBox.scrollTop = chatBox.scrollHeight;
-}
+  function addMsg(text, who="bot") {
+    const div = document.createElement("div");
+    div.className = `msg ${who}`;
+    div.textContent = text;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+    return div;
+  }
 
-// إرسال السؤال وتشغيل البث الحي (SSE)
-async function sendMessage() {
-  const text = input.value.trim();
-  if (!text) return;
-  appendMessage("user", text);
-  input.value = "";
+  function saveUser() {
+    const u = (userEl.value || "guest").trim() || "guest";
+    localStorage.setItem("bassam_user", u);
+    addMsg(`تم حفظ الاسم: ${u}`, "sys");
+  }
+  window.saveUser = saveUser;
 
-  const eventSource = new EventSource(`/ask_stream?q=${encodeURIComponent(text)}`);
+  async function send() {
+    const q = (qEl.value || "").trim();
+    const user = (userEl.value || "guest").trim() || "guest";
+    if (!q) return;
+    qEl.value = "";
 
-  let fullResponse = "";
+    addMsg(q, "me");
+    const holder = addMsg("…", "bot");
 
-  eventSource.onmessage = (event) => {
-    const chunk = event.data;
-    if (chunk === "[DONE]") {
-      eventSource.close();
-      return;
+    // جرّب SSE أولًا
+    const url = `/ask/stream?` + new URLSearchParams({ q, user }).toString();
+    let usedSSE = false;
+
+    try {
+      // إذا المتصفح لا يدعم EventSource، سيرمي خطأ
+      const es = new EventSource(url);
+      usedSSE = true;
+
+      let buf = "";
+      es.onmessage = (e) => {
+        buf += (buf ? " " : "") + e.data;
+        holder.textContent = buf;
+      };
+      es.addEventListener("done", () => es.close());
+      es.onerror = () => {
+        es.close();
+        if (!buf) fallbackFetch(q, user, holder);
+      };
+    } catch (e) {
+      // لا يدعم SSE
+      fallbackFetch(q, user, holder);
     }
-    fullResponse += chunk + " ";
-    // تحديث الرسالة الأخيرة في الوقت الحقيقي
-    updateLastBotMessage(fullResponse);
-  };
 
-  eventSource.onerror = () => {
-    eventSource.close();
-    appendMessage("bot", "⚠️ حدث خطأ أثناء استقبال الرد.");
-  };
+    if (!usedSSE) {
+      // متصفح قديم جدًا
+      fallbackFetch(q, user, holder);
+    }
+  }
+  window.send = send;
 
-  // إنشاء مبدئي لرسالة البوت
-  appendMessage("bot", "...");
-}
+  async function fallbackFetch(q, user, holder) {
+    try {
+      const r = await fetch("/api/ask", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ q, user })
+      });
+      const data = await r.json();
+      holder.textContent = data.answer || data.result || "لم يصل رد.";
+    } catch (e) {
+      holder.textContent = "تعذر الحصول على الرد.";
+    }
+  }
 
-// تحديث آخر رسالة بوت أثناء الكتابة
-function updateLastBotMessage(text) {
-  const botMessages = document.querySelectorAll(".msg.bot");
-  const last = botMessages[botMessages.length - 1];
-  if (last) last.innerHTML = `<b>🤖 بسّام:</b> ${text}`;
-}
-
-// إرسال عند الضغط على الزر أو زر Enter
-sendBtn.addEventListener("click", sendMessage);
-input.addEventListener("keypress", (e) => {
-  if (e.key === "Enter") sendMessage();
-});
+  // Enter لإرسال السؤال
+  qEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      send();
+    }
+  });
+})();
