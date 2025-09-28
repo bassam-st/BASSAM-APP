@@ -2,7 +2,7 @@
 # يعتمد على التلخيص والفهم السياقي من بيانات RAG أو الويب
 
 import re
-from sumy.parsers.plaintext import PlainTextParser   # ✅ الاستيراد الصحيح
+from sumy.parsers.plaintext import PlaintextParser   # ✅ الاستيراد الصحيح
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.text_rank import TextRankSummarizer
 
