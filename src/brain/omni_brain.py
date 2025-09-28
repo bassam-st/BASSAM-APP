@@ -1,11 +1,12 @@
 # src/brain/omni_brain.py
-# النسخة المتقدمة: أدوات محلية + RAG (اختياري) + Gemini + ويب + ذاكرة مستخدم
+# النسخة المتقدمة: أدوات محلية + RAG + Gemini + ويب + ذاكرة مستخدم (إصدار ثابت)
 
 import os, re, math, json, time
 from datetime import datetime
 from dateutil import parser as dateparser
 from typing import List, Dict, Optional
 
+import numpy as np
 import httpx
 from bs4 import BeautifulSoup
 from readability import Document
@@ -15,13 +16,19 @@ from wikipedia import summary as wiki_summary
 
 from sympy import sympify, diff, integrate
 
-# ✅ Sumy الصحيح (هذا كان سبب الخطأ)
+# ✅ التصحيح الصحيح هنا
 from sumy.parsers.plaintext import PlainTextParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.text_rank import TextRankSummarizer
 
 # ✅ ذاكرة المستخدم
 from src.memory.memory import remember, recall
+
+# ✅ RAG
+import faiss
+from sentence_transformers import SentenceTransformer
+from src.rag.indexer import is_ready as rag_cache_ready
+from src.rag.retriever import query_index as rag_file_query
 
 # ===== إعدادات عامة =====
 UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
@@ -30,61 +37,31 @@ cache = Cache(".cache")
 # ===== Gemini (اختياري) =====
 USE_GEMINI = bool(os.getenv("GEMINI_API_KEY"))
 if USE_GEMINI:
-    try:
-        import google.generativeai as genai
-        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        GEMINI = genai.GenerativeModel("gemini-1.5-flash")
-    except Exception:
-        GEMINI = None
+    import google.generativeai as genai
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    GEMINI = genai.GenerativeModel("gemini-1.5-flash")
 else:
     GEMINI = None
 
-# ===== RAG (اختياري بالكامل، مع حراسة الاستيراد) =====
-RAG_AVAILABLE = False
-RAG_EMB = None
-faiss = None
+# ===== RAG Embeddings =====
+try:
+    RAG_MODEL_NAME = os.getenv("RAG_EMB_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+    RAG_EMB = SentenceTransformer(RAG_MODEL_NAME)
+except Exception:
+    RAG_EMB = None
 
-def _safe_import_rag():
-    global RAG_AVAILABLE, RAG_EMB, faiss
-    try:
-        from sentence_transformers import SentenceTransformer
-        import faiss as _faiss
-        model_name = os.getenv("RAG_EMB_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-        RAG_EMB = SentenceTransformer(model_name)
-        faiss = _faiss
-        return True, RAG_EMB, faiss
-    except Exception:
-        return False, None, None
-
-RAG_AVAILABLE, RAG_EMB, faiss = _safe_import_rag()
-
-# محاولات استيراد وحدات RAG الداخلية بأمان
-def _try_import_rag_modules():
-    try:
-        from src.rag.indexer import is_ready as _is_ready
-    except Exception:
-        _is_ready = lambda: False
-    try:
-        from src.rag.retriever import query_index as _query_index
-    except Exception:
-        def _query_index(*_, **__):
-            return [("تنبيه", "لم يتم إنشاء الفهرس RAG بعد.")]
-    return _is_ready, _query_index
-
-rag_cache_ready, rag_file_query = _try_import_rag_modules()
-
-# ===== مساعدات نصية =====
+# ===== أدوات مساعدة =====
 AR = lambda s: re.sub(r"\s+", " ", (s or "").strip())
 
 # ===== تلخيص محلي =====
 def summarize_text(text: str, max_sentences: int = 5) -> str:
     try:
-        parser = PlainTextParser.from_string(text or "", Tokenizer("arabic"))
-        summ = TextRankSummarizer()
-        sents = summ(parser.document, max_sentences)
-        return " ".join(str(s) for s in sents)
+        parser = PlainTextParser.from_string(text, Tokenizer("arabic"))
+        summarizer = TextRankSummarizer()
+        sentences = summarizer(parser.document, max_sentences)
+        return " ".join(str(s) for s in sentences)
     except Exception:
-        return (text or "")[:700]
+        return text[:700]
 
 # ===== بحث الويب =====
 def ddg_text(q: str, n: int = 5) -> List[Dict]:
@@ -102,7 +79,7 @@ def fetch_clean(url: str, timeout: int = 12) -> str:
     except Exception:
         return ""
 
-# ===== أدوات محلية (رياضيات/وحدات/تواريخ) =====
+# ===== أدوات محلية (رياضيات + عملات + تواريخ) =====
 MATH_PAT = re.compile(r"[=+\-*/^()]|sin|cos|tan|log|sqrt|∫|dx|dy|d/dx|مشتقة|تكامل", re.I)
 CURRENCY = {"USD":1.0, "EUR":0.92, "SAR":3.75, "AED":3.67, "YER":250.0}
 
@@ -132,16 +109,11 @@ def answer_units_dates(q: str) -> Optional[str]:
         usd = amount / CURRENCY[src]
         out = usd * CURRENCY[dst]
         return f"تقريبًا: {amount} {src} ≈ {round(out,2)} {dst}"
-    m2 = re.search(r"(\d+)\s*(يوم|أيام|day|days)\s*(?:بعد|later|from)\s*([0-9\-/: ]+)", q, re.I)
-    if m2:
-        n = int(m2.group(1)); base = dateparser.parse(m2.group(3))
-        if base:
-            return (base + __import__('datetime').timedelta(days=n)).strftime("%Y-%m-%d %H:%M")
     return None
 
 # ===== ويكيبيديا قصيرة =====
 def answer_wikipedia(q: str) -> Optional[str]:
-    m = re.search(r"^(من هو|من هي|ما هي|ماهو|ماهي)\s+(.+)$", q.strip(), re.I)
+    m = re.search(r"^(من هو|من هي|ما هو|ماهي|ماهيه|ماهي)\s+(.+)$", q.strip(), re.I)
     topic = m.group(2) if m else None
     topic = topic or (q if len(q.split())<=6 else None)
     if not topic:
@@ -152,98 +124,61 @@ def answer_wikipedia(q: str) -> Optional[str]:
     except Exception:
         return None
 
-# ===== مشاعر وتحيات =====
-GREET_WORDS = ["مرحبا","مرحباً","اهلاً","أهلاً","السلام عليكم","هلا","صباح الخير","مساء الخير","هاي","شلونك","كيفك"]
-FAREWELL_WORDS = ["مع السلامة","إلى اللقاء","تصبح على خير","اشوفك لاحقاً","باي"]
-PERSONA_TAGLINES = [
-    "أنا بسّام الذكي — هنا عشان أساعدك بخطوات بسيطة وواضحة ✨",
-    "بسّام معك! نحلها خطوة بخطوة وبهدوء 💪",
-]
+# ===== تحيات + مشاعر =====
 def answer_empathy(q: str) -> Optional[str]:
-    for w in GREET_WORDS:
-        if w in q:
-            return ("وعليكم السلام ورحمة الله — أهلاً وسهلاً! 😊\n"+PERSONA_TAGLINES[0]) if "السلام" in w else ("مرحبًا! سعيد بوجودك 🤝\n"+PERSONA_TAGLINES[1])
-    for w in FAREWELL_WORDS:
-        if w in q:
-            return "في حفظ الله! إذا احتجت أي شيء أنا حاضر دائمًا 🌟"
-    if re.search(r"(أنا حزين|حزينه|متضايق|متضايقة|قلقان|قلقانه|زعلان)", q):
-        return "أنا هنا معك 💙 — خذ نفسًا عميقًا، وقل لي ما الذي يزعجك خطوة خطوة."
-    if re.search(r"(شكرا|ثنكيو|thank|ممتاز|جزاك الله خير)", q, re.I):
-        return "شكرًا لذوقك! يسعدني أساعدك دائمًا 🙏"
+    greetings = ["مرحبا","السلام","اهلا","أهلاً","هلا","صباح الخير","مساء الخير"]
+    farewells = ["وداعا","الى اللقاء","مع السلامة","تصبح على خير"]
+    if any(w in q for w in greetings):
+        return "مرحبًا بك! 😊 أنا بسّام الذكي — جاهز أساعدك في أي وقت."
+    if any(w in q for w in farewells):
+        return "في أمان الله 🌷"
+    if "شكرا" in q or "ثنكيو" in q or "thanks" in q:
+        return "العفو 🙏 يسعدني أساعدك دائمًا."
     return None
 
-# ===== Beauty Coach =====
-BEAUTY_PAT = re.compile(r"(بشرة|تفتيح|بياض|غسول|رتينول|فيتامين|شعر|تساقط|قشره|حب شباب|حبوب|رؤوس سوداء|ترطيب|واقي|رشاقه|تخسيس|رجيم)", re.I)
+# ===== العناية والجمال =====
 def beauty_coach(q: str) -> Optional[str]:
-    if not BEAUTY_PAT.search(q): return None
-    ql = q.lower()
+    if not re.search(r"(بشرة|تفتيح|حبوب|ترطيب|شعر|قشره|رتينول|غسول|واقي)", q, re.I):
+        return None
     tips = [
-        "🧼 غسول لطيف صباحًا ومساءً.",
-        "🧴 ترطيب يومي (حتى للبشرة الدهنية بجلّ خفيف).",
-        "🛡️ واقي شمس SPF 30+ يوميًا.",
-        "🛌 نوم كافٍ + ماء بانتظام.",
+        "🧼 استخدم غسول لطيف مرتين باليوم.",
+        "🧴 لا تنسَ الترطيب بعد الغسول.",
+        "🛡️ استخدم واقي شمس SPF 30+ يوميًا.",
+        "💧 اشرب ماء كافٍ ونَم جيدًا.",
     ]
-    if re.search(r"(تفتيح|بياض|اسمرار|غموق)", ql):
-        tips += ["فيتامين C صباحًا 3–10% + SPF","نياسيناميد 4–10% مساءً","تجنب الخلطات المجهولة."]
-    if re.search(r"(حب شباب|الحبوب|blackhead|whitehead|رؤوس)", ql):
-        tips += ["بنزويل بيروكسيد 2.5–5% للحبوب الملتهبة","ساليسيليك أسيد 0.5–2%","ريتينول تدريجيًا ليلًا 1–2×/أسبوع"]
-    if re.search(r"(شعر|تساقط|قشره)", ql):
-        tips += ["تدليك الفروة 5 دقائق يوميًا","زيوت خفيفة للأطراف","تحقق من الحديد/فيتامين D"]
-    if re.search(r"(رشاقه|تخسيس|وزن|رجيم|دايت)", ql):
-        tips += ["عجز حراري معتدل 300–500 سعرة","مشي 30 دقيقة 5 أيام/أسبوع","تجنّب الحميات القاسية"]
-    return "أنا معك — خطوة بخطوة ✨\n" + "\n".join("• "+t for t in tips[:10])
+    return "نصيحتي لك ✨\n" + "\n".join(f"• {t}" for t in tips)
 
 # ===== RAG =====
 def answer_rag(q: str, k: int = 4) -> Optional[str]:
-    # 1) عبر indexer (cache) إذا كان RAG متاحًا
-    if RAG_AVAILABLE and RAG_EMB and rag_cache_ready():
-        try:
-            index  = cache.get("rag:index")
+    try:
+        if RAG_EMB and rag_cache_ready():
+            index = cache.get("rag:index")
             chunks = cache.get("rag:chunks")
-            metas  = cache.get("rag:metas")
-            if index is not None and chunks and metas:
-                import numpy as np
+            metas = cache.get("rag:metas")
+            if index and chunks:
                 qv = RAG_EMB.encode([q], convert_to_numpy=True, normalize_embeddings=True)
                 D, I = index.search(qv, k)
                 picks = [i for i in I[0] if 0 <= i < len(chunks)]
                 if picks:
-                    ctx  = "\n\n".join(chunks[i] for i in picks)
-                    srcs = sorted(set(metas[i]["source"] for i in picks))
-                    summ = summarize_text(ctx, max_sentences=6)
-                    return f"{AR(summ)}\n\nالمصادر (RAG من ملفاتك):\n" + "\n".join(f"- {s}" for s in srcs)
-        except Exception:
-            pass
-
-    # 2) عبر retriever (ملفات على القرص)
-    try:
-        hits = rag_file_query(q, top_k=k)
-        if not hits:
-            return None
-        if len(hits) == 1 and isinstance(hits[0], tuple) and "لم يتم إنشاء الفهرس" in hits[0][0]:
-            return None
-        ctx  = "\n\n".join(snippet for _, snippet in hits)
-        srcs = [fname for fname, _ in hits]
-        if not ctx.strip():
-            return None
-        summ = summarize_text(ctx, max_sentences=6)
-        return f"{AR(summ)}\n\nالمصادر (RAG من ملفاتك):\n" + "\n".join(f"- {s}" for s in sorted(set(srcs)))
+                    ctx = "\n\n".join(chunks[i] for i in picks)
+                    summ = summarize_text(ctx, 6)
+                    return f"{summ}\n\n📚 من ملفاتك المحلية."
     except Exception:
         return None
+    return None
 
 # ===== Gemini =====
 def answer_gemini(q: str) -> Optional[str]:
-    if not GEMINI: return None
+    if not GEMINI:
+        return None
     try:
-        resp = GEMINI.generate_content("أجب بالعربية الواضحة باختصار ودقة وبنبرة ودودة:\n"+q)
+        resp = GEMINI.generate_content("أجب بالعربية المختصرة والواضحة:\n" + q)
         return (resp.text or "").strip()
     except Exception:
         return None
 
 # ===== ويب + تلخيص محلي =====
 def answer_from_web(q: str) -> str:
-    key = f"w:{q}"
-    c = cache.get(key)
-    if c: return c
     hits = ddg_text(q, n=5)
     contexts, cites = [], []
     for h in hits:
@@ -254,70 +189,18 @@ def answer_from_web(q: str) -> str:
             contexts.append(txt)
             cites.append(url)
     if not contexts:
-        return "لم أجد مصادر كافية الآن. جرّب/ي إعادة الصياغة."
-    blob = "\n\n".join(contexts)[:16000]
-    summ = summarize_text(blob, max_sentences=6)
-    ans = AR(summ) + ("\n\nالمصادر:\n" + "\n".join(f"- {u}" for u in cites[:5]) if cites else "")
-    cache.set(key, ans, expire=3600)
-    return ans
+        return "لم أجد معلومات كافية الآن، حاول بصيغة مختلفة."
+    summ = summarize_text("\n\n".join(contexts), 6)
+    return f"{summ}\n\n🌐 المصادر:\n" + "\n".join(f"- {u}" for u in cites[:5])
 
-# ===== الموجّه الرئيسي (بدون ذاكرة) =====
+# ===== الموجه الرئيسي =====
 def omni_answer(q: str) -> str:
     q = AR(q)
-    if not q: return "اكتب/ي سؤالك أولًا."
-
-    # 0) تحيات/مشاعر
-    a = answer_empathy(q)
-    if a: return a
-
-    # 1) أدوات محلية + Beauty + ويكيبيديا
-    for tool in (answer_math, answer_units_dates, beauty_coach, answer_wikipedia):
-        a = tool(q)
-        if a: return a
-
-    # 2) RAG من ملفاتك (إن وُجد)
-    a = answer_rag(q)
-    if a: return a
-
-    # 3) Gemini (اختياري)
-    a = answer_gemini(q)
-    if a: return a
-
-    # 4) ويب + تلخيص محلي
-    return answer_from_web(q)
-
-# ===== خط الأنابيب مع الذاكرة =====
-def _extract_name(text: str) -> Optional[str]:
-    m = re.search(r"(?:اسمي|انا اسمي|أنا اسمي|my name is)\s+([^\.,\|\n\r]+)", text, re.I)
-    if m:
-        name = m.group(1).strip()
-        name = re.sub(r"[^\w\u0600-\u06FF\s\-']", "", name)
-        return name[:40]
-    return None
-
-def qa_pipeline(query: str, user_id: str = "guest") -> str:
-    q = AR(query or "")
     if not q:
-        return "اكتب/ي سؤالك أولاً."
+        return "اكتب سؤالك أولًا."
 
-    possible_name = _extract_name(q)
-    if possible_name:
-        remember(user_id, "name", possible_name)
-        return f"تشرفت بمعرفتك يا {possible_name} 🌟"
-
-    name = recall(user_id, "name", None)
-    if name:
-        if re.search(r"(شكرا|ثنكيو|thanks)", q, re.I):
-            remember(user_id, "last_query", q)
-            return f"العفو يا {name}! يسعدني أساعدك دائمًا 🙏"
-        if re.search(r"(كيفك|شلونك|اخبارك)", q):
-            remember(user_id, "last_query", q)
-            return f"تمام الحمدلله، وأنت يا {name}؟ 😊"
-
-    answer = omni_answer(q)
-    remember(user_id, "last_query", q)
-
-    if name and isinstance(answer, str) and len(answer) < 400:
-        answer = f"{answer}\n\n— معك بسّام، دايمًا حاضر يا {name} 🌟"
-
-    return answer
+    for fn in (answer_empathy, answer_math, answer_units_dates, beauty_coach, answer_wikipedia, answer_rag, answer_gemini):
+        ans = fn(q)
+        if ans:
+            return ans
+    return answer_from_web(q)
