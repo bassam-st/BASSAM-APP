@@ -34,7 +34,7 @@ AR = lambda s: re.sub(r"\s+", " ", (s or "").strip())
 # ===== تلخيص محلي =====
 def summarize_text(text: str, max_sentences: int = 5) -> str:
     try:
-        parser = PlainTextParser.from_string(text, Tokenizer("arabic"))
+        parser = TextParser.from_string(text, Tokenizer("arabic"))
         summ = TextRankSummarizer()
         sents = summ(parser.document, max_sentences)
         return " ".join(str(s) for s in sents)
