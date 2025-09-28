@@ -1,5 +1,5 @@
 # =========================
-# Bassam App (v3.1) - requirements.txt
+# Bassam App (v3.1) — النسخة المثالية المستقرة
 # =========================
 
 # ⚙️ FastAPI stack
@@ -10,7 +10,6 @@ python-multipart>=0.0.9
 sse-starlette>=2.0.0
 
 # 🌐 الشبكة والويب
-# ملاحظة: googletrans==4.0.0-rc1 يعتمد httpx==0.13.x
 httpx==0.13.3
 beautifulsoup4>=4.12
 lxml>=4.9
@@ -23,28 +22,27 @@ rank-bm25>=0.2.2
 rapidfuzz>=3.9
 wikipedia>=1.4.0
 
-# 🌍 الترجمة
+# 🌍 الترجمة (Google Translate)
 googletrans==4.0.0-rc1
 
-# 🤖 (اختياري) Gemini
+# 🤖 واجهة Gemini (اختياري)
 google-generativeai>=0.7.0
 
-# 🧮 رياضيات
+# 🧮 الرياضيات والمنطق
 sympy>=1.12
 numpy==1.26.4
 
-# 💾 كاش
+# 💾 الكاش
 diskcache>=5.6.3
 
-# 🗓️ تواريخ
+# 🗓️ التواريخ
 python-dateutil>=2.9
 
-# 🇸🇦 عربية (اختياري)
+# 🇸🇦 العربية (اختياري)
 pyarabic>=0.6.15
 
-# 📚 RAG الكامل (FAISS + Sentence-Transformers)
-# سيجلب torch و transformers تلقائيًا
-faiss-cpu>=1.7.4,<2
+# 📚 RAG الكامل (مع FAISS و Sentence Transformers)
+faiss-cpu==1.7.4
 sentence-transformers>=2.6.1,<3
 
 # 📄 قراءة ملفات PDF
