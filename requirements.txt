@@ -42,10 +42,7 @@ pyarabic
 # 📅 التواريخ والتحليل الزمني
 python-dateutil
 
-# (اختياري لاحقًا لـ RAG – لا تُثبتها الآن إن ما تحتاجها)
-# transformers
-# sentence-transformers
-# faiss-cpu
-# pymupdf
-# vllm
-# bitsandbytes
+# 📚 الذكاء المعرفي (RAG: فهرسة واسترجاع من PDF)
+sentence-transformers
+faiss-cpu
+pymupdf
