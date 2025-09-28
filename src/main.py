@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 log = logging.getLogger("bassam")
 
 # ---------- التلخيص (Sumy) ----------
-from sumy.parsers.plaintext import PlainTextParser
+from sumy.parsers.plaintext import plaintextparser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.text_rank import TextRankSummarizer
 
