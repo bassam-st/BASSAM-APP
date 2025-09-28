@@ -11,7 +11,7 @@ from diskcache import Cache
 from wikipedia import summary as wiki_summary
 
 from sympy import sympify, diff, integrate
-from sumy.parsers.plaintext import PlainTextParser
+from sumy.parsers.text import PlaintextParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.text_rank import TextRankSummarizer
 
