@@ -12,7 +12,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(
 log = logging.getLogger("bassam")
 
 # ---------- التلخيص (Sumy) ----------
-from sumy.parsers.plaintext import plaintextparser
+from sumy.parsers.plaintext import PlaintextParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.text_rank import TextRankSummarizer
 
@@ -70,7 +70,7 @@ def clean_text(t: str) -> str:
 
 def summarize_text(text: str, sentences: int = 5, lang: str = "arabic") -> str:
     try:
-        parser = PlainTextParser.from_string(text, Tokenizer(lang))
+        parser = PlaintextParser.from_string(text, Tokenizer(lang))
         summarizer = TextRankSummarizer()
         summary = summarizer(parser.document, sentences)
         out = "\n".join(str(s) for s in summary).strip()
