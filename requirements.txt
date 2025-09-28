@@ -1,30 +1,48 @@
-fastapi>=0.111,<0.114
-uvicorn>=0.23,<0.31
+# ⚙️ الأساس لتطبيق FastAPI
+fastapi>=0.110,<0.120
+uvicorn>=0.30
 jinja2>=3.1
 python-multipart>=0.0.9
-sse-starlette>=1.8.2
+sse-starlette>=2.0.0
 
+# 🌐 الشبكة والويب (ملاحظة: مُثبّت حسب googletrans)
 httpx==0.13.3
 beautifulsoup4>=4.12
+lxml>=4.9
 readability-lxml>=0.8.1
-duckduckgo_search>=6.1.3
+duckduckgo_search>=4.5
 
+# 🧠 التلخيص والبحث المحلي الخفيف
 sumy==0.11.0
 rank-bm25>=0.2.2
-rapidfuzz>=3.6
-wikipedia==1.4.0
+rapidfuzz>=3.9
+wikipedia>=1.4.0
+
+# 🌍 الترجمة (تتطلب httpx==0.13.3)
 googletrans==4.0.0-rc1
 
-google-generativeai>=0.7.2
+# 🤖 اختيارية: واجهة Gemini (إن وجِد المفتاح)
+google-generativeai>=0.7.0
 
+# 🧮 رياضيات وأساسيات
 sympy>=1.12
-numpy>=1.26,<2.0      # لتجنّب مشاكل مع بعض المكتبات
-diskcache>=5.6
+numpy==1.26.4
 
-psycopg2-binary>=2.9
+# 💾 كاش
+diskcache>=5.6.3
 
-fpdf>=1.7.2
-pyarabic>=0.6.15
+# 🗓️ تواريخ
 python-dateutil>=2.9
 
+# 🇸🇦 عربية (اختياري)
+pyarabic>=0.6.15
 
+# 📚 RAG الخفيف (بديل FAISS/Embeddings)
+scikit-learn>=1.4.2
+# ستجلب تلقائيًا: scipy، joblib، threadpoolctl
+
+# 📄 قراءة ملفات PDF
+pymupdf>=1.24.9
+
+# 🧾 إنشاء PDF (اختياري)
+fpdf>=1.7.2
