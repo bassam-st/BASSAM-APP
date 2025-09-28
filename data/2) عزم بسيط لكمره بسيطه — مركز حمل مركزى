@@ -1,0 +1,6 @@
+# Beam simply supported, central point load P, span L
+# Mmax = P*L/4, R = P/2
+P = 20e3  # N
+L = 6.0   # m
+Mmax = P*L/4
+print("Mmax (N.m):", Mmax)
