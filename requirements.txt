@@ -1,52 +1,42 @@
 # =========================
-# Bassam App (v3.1) — النسخة المثالية المستقرة
+# Bassam App v3.1 — Ultra Lite (Render Free 512MB)
 # =========================
 
-# ⚙️ FastAPI stack
+# FastAPI stack
 fastapi>=0.110,<0.120
 uvicorn>=0.30
 jinja2>=3.1
 python-multipart>=0.0.9
 sse-starlette>=2.0.0
 
-# 🌐 الشبكة والويب
-httpx==0.13.3
+# Web / scraping
+httpx==0.13.3           # متوافق مع googletrans rc1
 beautifulsoup4>=4.12
 lxml>=4.9
 readability-lxml>=0.8.1
 duckduckgo_search>=4.5
 
-# 🧠 التلخيص والبحث المحلي
+# Local summarize & retrieval الخفيف
 sumy==0.11.0
-rank-bm25>=0.2.2
+rank-bm25>=0.2.2        # سنستخدمه لاحقًا لـ RAG خفيف فقط
 rapidfuzz>=3.9
 wikipedia>=1.4.0
 
-# 🌍 الترجمة (Google Translate)
+# Translation
 googletrans==4.0.0-rc1
 
-# 🤖 واجهة Gemini (اختياري)
+# Optional: Gemini
 google-generativeai>=0.7.0
 
-# 🧮 الرياضيات والمنطق
+# Math / utils (خفيفة نسبيًا)
 sympy>=1.12
 numpy==1.26.4
-
-# 💾 الكاش
 diskcache>=5.6.3
-
-# 🗓️ التواريخ
 python-dateutil>=2.9
-
-# 🇸🇦 العربية (اختياري)
 pyarabic>=0.6.15
 
-# 📚 RAG الكامل (مع FAISS و Sentence Transformers)
-faiss-cpu==1.7.4
-sentence-transformers>=2.6.1,<3
-
-# 📄 قراءة ملفات PDF
+# PDF (خفيف نسبيًا)
 pymupdf>=1.24.9
 
-# 🧾 إنشاء PDF (اختياري)
+# PDF export (اختياري)
 fpdf>=1.7.2
