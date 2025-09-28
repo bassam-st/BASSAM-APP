@@ -1,44 +1,15 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>محادثة بسّام الذكي</title>
-  <link rel="stylesheet" href="/static/style.css">
-  <style>
-    body{font-family:system-ui,Segoe UI,Arial;max-width:860px;margin:24px auto;padding:0 12px}
-    .wrap{display:flex;flex-direction:column;gap:12px}
-    .row{display:flex;gap:8px}
-    input,button{font-size:16px;padding:10px}
-    input{flex:1}
-    #chat{border:1px solid #ddd;border-radius:10px;min-height:320px;padding:12px;overflow:auto;background:#fafafa}
-    .msg{margin:8px 0;padding:10px;border-radius:10px;line-height:1.7}
-    .me{background:#e6f7ff}
-    .bot{background:#fff;border:1px solid #eee}
-    .sys{background:#f3f3f3;color:#666;font-size:14px}
-    .small{font-size:12px;color:#777}
-  </style>
-</head>
+<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8" />
+<title>بسّام — محادثة</title>
+<link rel="stylesheet" href="/static/chat.css" />
 <body>
-  <h2>🤖 محادثة بسّام الذكي</h2>
-
-  <div class="wrap">
-    <div class="row">
-      <input id="user" placeholder="اسم المستخدم (اختياري)" />
-      <button onclick="saveUser()">حفظ الاسم</button>
-    </div>
-
-    <div id="chat" aria-live="polite">
-      <div class="msg sys">أهلاً بك! اكتب سؤالك ثم اضغط إرسال. (يُفضّل ترك الاسم محفوظًا ليتذكر تفضيلاتك)</div>
-    </div>
-
-    <div class="row">
-      <input id="q" placeholder="اكتب سؤالك هنا… ثم Enter أو اضغط إرسال">
-      <button id="send" onclick="send()">إرسال</button>
-    </div>
-    <div class="small">البثّ الحي عبر SSE. إن لم يدعم المتصفح سيستخدم الردّ العادي.</div>
+  <div class="chat">
+    <header>🤖 بسّام الذكي</header>
+    <main id="msgs"></main>
+    <footer>
+      <input id="msg" placeholder="اكتب سؤالك..." />
+      <button id="send">إرسال</button>
+    </footer>
   </div>
-
   <script src="/static/chat.js"></script>
 </body>
 </html>
