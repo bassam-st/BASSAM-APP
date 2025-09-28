@@ -12,7 +12,12 @@ from typing import List, Dict, Any
 from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
 from readability import Document
-from sumy.parsers.plaintext import PlainTextParser        # ✅ تم التصحيح هنا
+
+# ✅ استيراد مرن لـ sumy (يدعم text و plaintext)
+try:
+    from sumy.parsers.text import PlainTextParser  # الإصدارات الأحدث
+except Exception:
+    from sumy.parsers.plaintext import PlainTextParser  # لبعض الإصدارات القديمة
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.text_rank import TextRankSummarizer
 
@@ -29,20 +34,23 @@ USAGE_PATH = os.path.join(DATA_DIR, "usage_stats.json")
 
 app = FastAPI(title="Bassam الذكي 🤖", version="3.4")
 
-# ------------------ الواجهة ------------------
+# --- إعداد الواجهة ---
 try:
     app.mount("/static", StaticFiles(directory="static"), name="static")
     templates = Jinja2Templates(directory="templates")
 except Exception:
     templates = None
 
+# --- إعداد CORS ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
 
-# ------------------ مساعدة ------------------
+# -------------------------
+# أدوات مساعدة
+# -------------------------
 def _ensure_dirs():
     os.makedirs(DATA_DIR, exist_ok=True)
     os.makedirs(NOTES_DIR, exist_ok=True)
@@ -68,11 +76,10 @@ def _read_md_txt_files() -> List[Dict[str, str]]:
     try:
         with open(LEARN_PATH, "r", encoding="utf-8") as f:
             for line in f:
-                if not line.strip():
-                    continue
-                obj = json.loads(line)
-                text = f"س: {obj.get('question','')}\nج: {obj.get('answer','')}\nوسوم:{','.join(obj.get('tags',[]))}"
-                docs.append({"file": "learned", "text": text})
+                if line.strip():
+                    obj = json.loads(line)
+                    text = f"س: {obj.get('question','')}\nج: {obj.get('answer','')}\nوسوم:{','.join(obj.get('tags',[]))}"
+                    docs.append({"file": "learned", "text": text})
     except:
         pass
     return docs
@@ -80,9 +87,10 @@ def _read_md_txt_files() -> List[Dict[str, str]]:
 def _tokenize_ar(s: str) -> List[str]:
     return re.findall(r"[\w\u0600-\u06FF]+", s.lower())
 
+# --- فهرسة RAG ---
 BM25_INDEX = None
 BM25_CORPUS = []
-BM25_DOCS: List[Dict[str, str]] = []
+BM25_DOCS = []
 
 def build_index():
     global BM25_INDEX, BM25_CORPUS, BM25_DOCS
@@ -93,13 +101,12 @@ def build_index():
 
 build_index()
 
-# ------------------ ذكاء ------------------
+# -------------------------
+# الذكاء: تلخيص + بحث + رياضيات
+# -------------------------
 def summarize_text(text: str, max_sentences: int = 3) -> str:
     try:
-        try:
-            parser = PlainTextParser.from_string(text, Tokenizer("arabic"))
-        except Exception:
-            parser = PlainTextParser.from_string(text, Tokenizer("english"))
+        parser = PlainTextParser.from_string(text, Tokenizer("arabic"))
         summ = TextRankSummarizer()
         sents = summ(parser.document, max_sentences)
         return " ".join(str(s) for s in sents) if sents else text[:400]
@@ -142,12 +149,29 @@ def solve_math(expr: str):
     except Exception as e:
         return {"error": f"تعذر تحليل المعادلة: {e}"}
 
-# ------------------ واجهات ------------------
+# -------------------------
+# واجهات التطبيق
+# -------------------------
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     if templates:
         return templates.TemplateResponse("index.html", {"request": request, "version": "v3.4"})
-    return HTMLResponse("<h2>بسّام الذكي v3.4 يعمل ✅</h2>")
+    html = f"""<!doctype html><meta charset="utf-8"><title>Bassam v3.4</title>
+    <style>body{{background:#0b1020;color:#e7ecff;font-family:system-ui}}.c{{max-width:800px;margin:40px auto}}
+    input,button{{padding:10px;border-radius:10px;border:1px solid #223066;background:#0f1a38;color:#fff}}
+    .row{{display:flex;gap:8px}}</style>
+    <div class='c'><h2>بسّام الذكي v3.4 🤖</h2>
+    <div class='row'><input id=q style='flex:1' placeholder='اكتب سؤالك'><button onclick='ask()'>إرسال</button></div>
+    <pre id=out></pre>
+    <script>
+    async function ask(){{
+      const q=document.getElementById('q').value; 
+      const r=await fetch('/ask?q='+encodeURIComponent(q));
+      const j=await r.json();
+      document.getElementById('out').textContent=JSON.stringify(j,null,2);
+    }}
+    </script></div>"""
+    return HTMLResponse(html)
 
 @app.get("/healthz")
 def healthz():
@@ -159,14 +183,17 @@ def ask(q: str = Query(..., description="سؤالك")):
     if not q:
         return {"error": "أدخل سؤالك"}
 
+    # 1) رياضيات
     if any(tok in q for tok in ["sin", "cos", "tan", "log", "exp", "^"]) or "مشتقة" in q or "تكامل" in q:
         return {"type": "math", "result": solve_math(q)}
 
+    # 2) RAG محلي
     rag = rag_bm25(q, k=3)
     if rag:
         s = summarize_text(rag[0]["snippet"], 3)
         return {"type": "rag", "hits": rag, "summary": s}
 
+    # 3) بحث ويب
     web = web_search(q)
     if web:
         for item in web:
@@ -175,7 +202,17 @@ def ask(q: str = Query(..., description="سؤالك")):
 
     return {"msg": "لم أجد نتائج حول سؤالك."}
 
-# ------------------ تشغيل ------------------
+# -------------------------
+# نقاط إضافية
+# -------------------------
+@app.get("/stats")
+def stats():
+    try:
+        with open(USAGE_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except:
+        return {"requests": 0}
+
 if __name__ == "__main__":
-    import uvicorn, os
+    import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
