@@ -12,7 +12,9 @@ from src.brain.omni_brain import omni_answer
 
 app = FastAPI(title="Bassam الذكي — Omni Brain v2.1", version="2.1")
 
-# CORS (للربط مع واجهات الجوال/الويب)
+# ==============================
+# إعدادات CORS (للربط مع الويب أو الجوال)
+# ==============================
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,16 +23,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# محاولة ربط static/templates بشكل آمن (لا يتعطل لو المجلد مفقود)
+# ==============================
+# محاولة ربط static/templates
+# ==============================
 try:
     app.mount("/static", StaticFiles(directory="static"), name="static")
     templates = Jinja2Templates(directory="templates")
 except Exception:
     templates = None
 
-# ---------------------------
-# صفحة رئيسية
-# ---------------------------
+# ==============================
+# صفحة رئيسية بسيطة
+# ==============================
 BASIC_HTML = """
 <!doctype html><html lang=ar dir=rtl><meta charset=utf-8>
 <title>بسّام الذكي</title>
@@ -50,53 +54,53 @@ button:hover{background:#1565c0}
 </html>
 """
 
+# ==============================
+# الصفحة الرئيسية
+# ==============================
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     if templates:
-        # ✅ الواجهة الجديدة: نمرّر request أولًا ثم اسم القالب ثم السياق (بدون مفتاح "request")
         return templates.TemplateResponse(request, "index.html", {})
     return HTMLResponse(BASIC_HTML)
 
-# ---------------------------
-# زر "ابدأ 🚀" يحوّل إلى واجهة المحادثة
-# ---------------------------
+# ==============================
+# إعادة التوجيه لواجهة المحادثة
+# ==============================
 @app.post("/search")
 async def go_chat(request: Request):
     form = await request.form()
     query = (form.get("query") or "").strip()
     return RedirectResponse(url=f"/chatui?query={query}", status_code=303)
 
-# ---------------------------
-# واجهة المحادثة (chat.html) — إن لم توجد نعرض بس الصفحة البسيطة
-# ---------------------------
+# ==============================
+# واجهة المحادثة (chat.html)
+# ==============================
 @app.get("/chatui", response_class=HTMLResponse)
 async def chatui(request: Request):
     if templates:
-        # ✅ نفس التصحيح هنا
         return templates.TemplateResponse(request, "chat.html", {})
-    # fallback بسيط لو ما في قوالب
     return HTMLResponse(BASIC_HTML)
 
-# ---------------------------
-# دالة مساعدة توحّد التنفيذ مع معالجة الأخطاء
-# ---------------------------
+# ==============================
+# دالة الأمان لتجنب توقف التطبيق
+# ==============================
 def safe_run(message: str) -> str:
     try:
         return omni_answer(message or "")
     except Exception as e:
         return f"⚠️ خطأ أثناء المعالجة: {e}"
 
-# ---------------------------
-# مسار الذكاء (يُستخدم من داخل chat.html عبر GET)
-# ---------------------------
+# ==============================
+# واجهة الأسئلة (GET)
+# ==============================
 @app.get("/ask")
 async def ask(query: str = ""):
     result = safe_run(query)
     return JSONResponse({"query": query, "result": result})
 
-# ---------------------------
-# مسار محادثة (POST JSON) — مناسب لتطبيق الموبايل/الفرونت
-# ---------------------------
+# ==============================
+# واجهة المحادثة (POST JSON)
+# ==============================
 @app.post("/chat")
 async def chat(request: Request):
     try:
@@ -107,14 +111,16 @@ async def chat(request: Request):
     result = safe_run(message)
     return JSONResponse({"answer": result})
 
-# ---------------------------
-# فحص الصحة (لـ Render)
-# ---------------------------
+# ==============================
+# فحص الصحة لـ Render
+# ==============================
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
 
-# تشغيل محليًا (أو عند بعض المنصات تحتاجه)
+# ==============================
+# تشغيل محلي أو في Render
+# ==============================
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
