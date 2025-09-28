@@ -1,198 +1,69 @@
-# src/brain/omni_brain.py
-# النسخة الخفيفة (v3.1 Lite): بدون FAISS / Sentence Transformers — تعمل في Render المجاني
-
-import os, re, math, json, time
-from datetime import datetime
-from dateutil import parser as dateparser
-from typing import List, Dict, Optional
-
-import httpx
+# src/brain/omni_brain.py — عقل بسام الذكي (تلخيص + بحث + فهم)
+import re, requests
+from duckduckgo_search import DDGS
 from bs4 import BeautifulSoup
 from readability import Document
-from duckduckgo_search import DDGS
 from diskcache import Cache
-from wikipedia import summary as wiki_summary
-from sympy import sympify, diff, integrate
 
-# ✅ Sumy الصحيح
-from sumy.parsers.text import PlaintextParser
-from sumy.nlp.tokenizers import Tokenizer
-from sumy.summarizers.text_rank import TextRankSummarizer
+# ===== استيراد آمن لمكتبة sumy =====
+try:
+    from sumy.parsers.plaintext import PlaintextParser
+    from sumy.nlp.tokenizers import Tokenizer
+    from sumy.summarizers.text_rank import TextRankSummarizer
+except Exception as e:
+    PlaintextParser = None
+    Tokenizer = None
+    TextRankSummarizer = None
 
-# ✅ مسترجع خفيف من مجلد docs (BM25 فقط) — يُستورد عند التشغيل
-from src.rag.retriever import query_index as rag_file_query
+cache = Cache("cache")
 
-# ===== إعدادات عامة =====
-UA = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"}
-cache = Cache(".cache")
+# ===== دالة تلخيص النص =====
+def summarize_text(text: str, sentences_count: int = 3):
+    if PlaintextParser and Tokenizer and TextRankSummarizer:
+        try:
+            parser = PlaintextParser.from_string(text, Tokenizer("arabic"))
+            summarizer = TextRankSummarizer()
+            summary = summarizer(parser.document, sentences_count)
+            return " ".join([str(s) for s in summary])
+        except Exception as e:
+            return simple_summary(text)
+    else:
+        return simple_summary(text)
 
-# ✅ RAG Switch (تشغيل/إيقاف عبر المتغير البيئي)
-RAG_ENABLED = os.getenv("BASSAM_RAG", "off").lower() in {"1", "true", "on", "yes"}
+def simple_summary(text: str):
+    sents = re.split(r'[.!؟\n]', text)
+    sents = [s.strip() for s in sents if s.strip()]
+    return " ".join(sents[:3])
 
-# ✅ Gemini (اختياري)
-USE_GEMINI = bool(os.getenv("GEMINI_API_KEY"))
-if USE_GEMINI:
-    import google.generativeai as genai
-    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-    GEMINI = genai.GenerativeModel("gemini-1.5-flash")
-else:
-    GEMINI = None
+# ===== دالة الإجابة العامة =====
+def omni_answer(query: str) -> str:
+    query = (query or "").strip()
+    if not query:
+        return "يرجى كتابة سؤالك أولاً ✍️"
 
-# ===== مساعدات نصية =====
-AR = lambda s: re.sub(r"\s+", " ", (s or "").strip())
+    key = f"ans::{query}"
+    if key in cache:
+        return cache[key]
 
-# ===== تلخيص محلي =====
-def summarize_text(text: str, max_sentences: int = 5) -> str:
     try:
-        parser = PlainTextParser.from_string(text, Tokenizer("arabic"))
-        summ = TextRankSummarizer()
-        sents = summ(parser.document, max_sentences)
-        return " ".join(str(s) for s in sents)
-    except Exception:
-        return text[:700]
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, region="xa-ar", max_results=5))
+        if not results:
+            return "لم أجد نتائج حول سؤالك."
+        top = results[0]
+        url = top.get("href", "")
+        title = top.get("title", "")
+        body = top.get("body", "")
+        try:
+            page = requests.get(url, timeout=10)
+            doc = Document(page.text)
+            text = BeautifulSoup(doc.summary(), "html.parser").get_text()
+            summary = summarize_text(text)
+        except Exception:
+            summary = body
+        answer = f"🔹 {title}\n\n{summary}\n\n🌐 المصدر: {url}"
+    except Exception as e:
+        answer = f"⚠️ خطأ أثناء المعالجة: {e}"
 
-# ===== بحث الويب =====
-def ddg_text(q: str, n: int = 5) -> List[Dict]:
-    with DDGS() as ddgs:
-        return list(ddgs.text(q, region="xa-ar", safesearch="moderate", max_results=n) or [])
-
-def fetch_clean(url: str, timeout: int = 12) -> str:
-    try:
-        r = httpx.get(url, headers=UA, timeout=timeout, follow_redirects=True)
-        r.raise_for_status()
-        doc = Document(r.text)
-        html_clean = doc.summary()
-        text = BeautifulSoup(html_clean, "lxml").get_text("\n", strip=True)
-        return text[:8000]
-    except Exception:
-        return ""
-
-# ===== أدوات محلية =====
-MATH_PAT = re.compile(r"[=+\-*/^()]|sin|cos|tan|log|sqrt|∫|dx|dy|مشتقة|تكامل", re.I)
-CURRENCY = {"USD": 1.0, "EUR": 0.92, "SAR": 3.75, "AED": 3.67, "YER": 250.0}
-
-def answer_math(q: str) -> Optional[str]:
-    if not MATH_PAT.search(q):
-        return None
-    try:
-        expr = sympify(q.replace("^", "**"))
-        return f"🔹 الناتج التقريبي: {expr.evalf()}"
-    except Exception:
-        if "مشتقة" in q:
-            try:
-                term = q.split("مشتقة", 1)[1].strip()
-                return f"مشتقة {term} = {diff(sympify(term))}"
-            except:
-                return "⚠️ لم أفهم التعبير الرياضي للمشتقة."
-        if "تكامل" in q:
-            try:
-                term = q.split("تكامل", 1)[1].strip()
-                return f"تكامل {term} = {integrate(sympify(term))}"
-            except:
-                return "⚠️ لم أفهم التعبير للتكامل."
-        return None
-
-def answer_units_dates(q: str) -> Optional[str]:
-    m = re.search(r"(\d+[\.,]?\d*)\s*(USD|EUR|SAR|AED|YER)\s*(?:->|الى|إلى|to)\s*(USD|EUR|SAR|AED|YER)", q, re.I)
-    if m:
-        amount = float(m.group(1).replace(",", "."))
-        src, dst = m.group(2).upper(), m.group(3).upper()
-        out = (amount / CURRENCY[src]) * CURRENCY[dst]
-        return f"💱 تقريبًا: {amount} {src} ≈ {round(out,2)} {dst}"
-    return None
-
-# ===== Wikipedia =====
-def answer_wikipedia(q: str) -> Optional[str]:
-    try:
-        return wiki_summary(q, sentences=3, auto_suggest=False, redirect=True)
-    except Exception:
-        return None
-
-# ===== Beauty Coach =====
-BEAUTY_PAT = re.compile(r"(بشرة|تفتيح|بياض|غسول|شعر|حب شباب|ترطيب|قشرة|رشاقة|رجيم)", re.I)
-def beauty_coach(q: str) -> Optional[str]:
-    if not BEAUTY_PAT.search(q):
-        return None
-    tips = [
-        "🧼 اغسلي وجهك بغسول لطيف مرتين يوميًا.",
-        "🧴 استخدمي مرطب مناسب لنوع بشرتك.",
-        "🛡️ لا تنسي واقي الشمس صباحًا.",
-        "💧 اشربي ماء كافٍ وحافظي على النوم المنتظم.",
-    ]
-    return "✨ نصيحة بسّام الجمالية:\n" + "\n".join(f"• {t}" for t in tips)
-
-# ===== التحيات والمشاعر =====
-def answer_empathy(q: str) -> Optional[str]:
-    if any(w in q for w in ["مرحبا", "هلا", "السلام عليكم", "صباح الخير", "مساء الخير"]):
-        return "👋 أهلاً وسهلاً! أنا بسّام الذكي، جاهز أساعدك اليوم ✨"
-    if any(w in q for w in ["شكرا", "ثنكيو", "thank", "ممتاز"]):
-        return "🙏 يسعدني أساعدك دائمًا!"
-    return None
-
-# ===== RAG الخفيف =====
-def answer_rag(q: str, k: int = 4):
-    if not RAG_ENABLED:
-        return None
-    try:
-        hits = rag_file_query(q, top_k=k)
-        if not hits or (len(hits) == 1 and "لم يتم إنشاء الفهرس" in hits[0][0]):
-            return None
-        ctx = "\n\n".join(snippet for _, snippet in hits if snippet)
-        srcs = [fname for fname, _ in hits if fname]
-        summ = summarize_text(ctx, max_sentences=6)
-        return f"{AR(summ)}\n\n📚 المصادر (من ملفاتك):\n" + "\n".join(f"- {s}" for s in srcs)
-    except Exception:
-        return None
-
-# ===== Gemini =====
-def answer_gemini(q: str) -> Optional[str]:
-    if not GEMINI:
-        return None
-    try:
-        res = GEMINI.generate_content("أجب بالعربية باختصار ودقة:\n" + q)
-        return (res.text or "").strip()
-    except Exception:
-        return None
-
-# ===== بحث الويب =====
-def answer_from_web(q: str) -> str:
-    hits = ddg_text(q)
-    texts, urls = [], []
-    for h in hits:
-        u = h.get("href") or h.get("url")
-        if not u:
-            continue
-        t = fetch_clean(u)
-        if t:
-            texts.append(t)
-            urls.append(u)
-    if not texts:
-        return "⚠️ لم أجد مصادر كافية، حاول إعادة الصياغة."
-    summary = summarize_text("\n\n".join(texts), 6)
-    return f"{AR(summary)}\n\n🌐 المصادر:\n" + "\n".join(f"- {u}" for u in urls[:5])
-
-# ===== الموجه الرئيسي =====
-def omni_answer(q: str) -> str:
-    q = AR(q)
-    if not q:
-        return "✏️ اكتب سؤالك أولًا."
-
-    # مشاعر
-    a = answer_empathy(q)
-    if a: return a
-
-    # أدوات محلية
-    for tool in (answer_math, answer_units_dates, beauty_coach, answer_wikipedia):
-        a = tool(q)
-        if a: return a
-
-    # RAG
-    a = answer_rag(q)
-    if a: return a
-
-    # Gemini
-    a = answer_gemini(q)
-    if a: return a
-
-    # ويب
-    return answer_from_web(q)
+    cache[key] = answer
+    return answer
