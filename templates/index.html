@@ -1,46 +1,16 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>🤖 بسام الذكي</title>
-  <style>
-    body{font-family:'Segoe UI',Tahoma,Arial,sans-serif;background:#eef1ff;margin:0;padding:0;text-align:center;direction:rtl}
-    header{background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:35px 10px;border-bottom:4px solid #4f46e5}
-    h1{margin:0;font-size:34px}
-    p{margin:6px 0 0;font-size:17px;opacity:.9}
-    main{padding:30px}
-    form{max-width:520px;margin:0 auto}
-    input[type=text]{width:100%;padding:14px;margin-top:12px;border-radius:10px;border:2px solid #ddd;font-size:16px}
-    .hint{margin-top:10px;font-size:13px;color:#555}
-    button{background:#4f46e5;color:#fff;border:0;padding:14px 20px;margin:14px 8px;border-radius:10px;cursor:pointer;font-size:17px;font-weight:bold}
-    button:hover{background:#4338ca}
-    .ghost{background:#6b7280}
-    .ghost:hover{background:#565e6b}
-    footer{margin-top:35px;padding:12px;color:#666;font-size:14px;border-top:1px solid #ddd}
-  </style>
-</head>
+<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8" />
+<title>Bassam App (v3.1)</title>
+<link rel="stylesheet" href="/static/chat.css" />
 <body>
-
-<header>
-  <h1>🤖 بسام الذكي</h1>
-  <p>مساعد عربي مجاني — للمحادثة، البحث، والرياضيات</p>
-</header>
-
-<main>
-  <!-- يرسل إلى /search (وسيحوّله الخادم إلى /chatui مع تمرير السؤال) -->
-  <form method="post" action="/search">
-    <label for="query">✍️ اكتب سؤالك أو مسألتك:</label><br>
-    <input id="query" name="query" type="text" placeholder="مثال: ما هي عاصمة اليمن؟ | حل x**2 + 3*x - 2 = 0" required>
-    <div class="hint">💡 تلميح: استخدم <b>x**2</b> للأسس، <b>sqrt(x)</b> للجذر، <b>pi</b> لثابت π.</div>
-    <button type="submit">🚀 ابدأ الآن</button>
-    <button type="button" class="ghost" onclick="window.location.href='/chatui'">💬 الانتقال مباشرة إلى المحادثة</button>
-  </form>
-</main>
-
-<footer>
-  BASSAM AI — نسخة محادثة ذكية ومجانية 💡
-</footer>
-
+  <div class="container">
+    <h1>أهلًا بك في <b>Bassam App (v3.1)</b> 👋</h1>
+    <p>ابدأ من <a href="/chatui">واجهة المحادثة</a> أو استخدم الروابط السريعة:</p>
+    <ul>
+      <li><code>/healthz</code> — فحص الصحة</li>
+      <li><code>/ask?q=الذكاء الاصطناعي</code> — إجابة ذكية</li>
+      <li><code>/search?q=الذكاء الاصطناعي</code> — بحث ويب</li>
+      <li><code>/summarize?text=نص طويل..&amp;sentences=5</code> — تلخيص</li>
+    </ul>
+  </div>
 </body>
 </html>
