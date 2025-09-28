@@ -1,18 +1,33 @@
-# main.py — Bassam App (v3.3)
-import os
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+# main.py — Bassam الذكي v3.3
+# بحث ذكي + تلخيص + RAG من ملفاتك + رياضيات + واجهة عربية
+from fastapi import FastAPI, Request, Query, Form
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.middleware.cors import CORSMiddleware
 
-# الذكاء
-from src.brain.omni_brain import omni_answer
+import os, re, html, time, json, math, requests
+from bs4 import BeautifulSoup
+from readability import Document
+from duckduckgo_search import DDGS
+from diskcache import Cache
+from sympy import symbols, sympify, diff, integrate, simplify, sin, cos, tan, log, exp
 
-APP_TITLE = "Bassam App (v3.3)"
-app = FastAPI(title=APP_TITLE, version="3.3")
+# ✅ تصحيح استيراد sumy (الإصدار الجديد)
+from sumy.parsers.text import PlainTextParser
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.text_rank import TextRankSummarizer
 
-# CORS
+# قاعدة البيانات المحلية للـ RAG
+DATA_DIR = "data"
+
+app = FastAPI(title="Bassam الذكي 🤖", version="3.3")
+
+# ربط المجلدات
+app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
+
+# إعداد CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -21,100 +36,105 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# static/templates (لو غير موجود ما ينهار)
-try:
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-    templates = Jinja2Templates(directory="templates")
-except Exception:
-    templates = None
+# كاش محلي مؤقت
+cache = Cache(directory=".cache")
 
-BASIC_HTML = """
-<!doctype html>
-<html lang="ar" dir="rtl">
-<meta charset="utf-8">
-<title>بسّام الذكي — v3.3</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<style>
-:root{--bg:#0b1020;--card:#10162b;--text:#e7ecff;--muted:#9fb0ff;--accent:#5b8cff}
-*{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto}
-.container{max-width:900px;margin:24px auto;padding:0 16px}
-.card{background:var(--card);border:1px solid #1f2b52;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
-.chat{height:60vh;overflow:auto;padding:14px}
-.msg{padding:10px 12px;border-radius:12px;margin:8px 0;line-height:1.7;white-space:pre-wrap}
-.user{background:#152043;border:1px solid #24336b}
-.bot{background:#0f1a38;border:1px solid #1a2a60}
-.row{display:flex;gap:10px;padding:12px;border-top:1px solid #1f2b52}
-input{flex:1;background:#0b132b;border:1px solid #203060;color:var(--text);padding:12px;border-radius:12px;outline:none}
-button{background:var(--accent);color:white;border:none;border-radius:12px;padding:12px 16px;font-weight:600;cursor:pointer}
-.small{color:#9fb0ff;font-size:13px}
-</style>
-<div class="container">
-  <h2>🤖 بسّام الذكي — <span class="small">v3.3 (RAG + Web + Math)</span></h2>
-  <div class="card" style="margin-top:12px">
-    <div id="chat" class="chat">
-      <div class="msg bot">مرحبًا! اكتب سؤالك بالعربي وسأجيبك ✨</div>
-    </div>
-    <div class="row">
-      <input id="q" placeholder="اسأل عن الرياضيات / ويكيبيديا / بحث ويب / تلخيص / ترجمة / طب/هندسة...">
-      <button id="send">إرسال</button>
-    </div>
-  </div>
-  <p class="small">الصحة: <a href="/healthz">/healthz</a> • واجهة قديمة: <a href="/chatui">/chatui</a></p>
-</div>
-<script>
-const chat=document.getElementById('chat'),q=document.getElementById('q'),send=document.getElementById('send');
-function push(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
-async function ask(){const text=q.value.trim();if(!text)return;push('user',text);q.value='';send.disabled=true;
-try{const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});
-const j=await r.json();push('bot',j.answer||'—');}catch(e){push('bot','⚠️ خطأ أثناء الاتصال بالخادم.');}
-finally{send.disabled=false;q.focus();}}
-send.onclick=ask;q.addEventListener('keydown',e=>{if(e.key==='Enter')ask();});
-</script>
-"""
+
+# 🧮 الذكاء الرياضي المحلي
+def solve_math(expr: str):
+    try:
+        x = symbols('x')
+        parsed = sympify(expr)
+        deriv = diff(parsed, x)
+        integ = integrate(parsed, x)
+        simp = simplify(parsed)
+        return {
+            "input": str(parsed),
+            "simplified": str(simp),
+            "derivative": str(deriv),
+            "integral": str(integ)
+        }
+    except Exception as e:
+        return {"error": f"تعذر تحليل المعادلة: {e}"}
+
+
+# 🧠 الذكاء النصي والتلخيص
+def summarize_text(text: str):
+    parser = PlainTextParser.from_string(text, Tokenizer("arabic"))
+    summarizer = TextRankSummarizer()
+    sentences = summarizer(parser.document, 3)
+    return " ".join(str(s) for s in sentences)
+
+
+# 📚 البحث في ملفات المعرفة المحلية (RAG)
+def rag_search(query: str):
+    results = []
+    for root, _, files in os.walk(DATA_DIR):
+        for file in files:
+            if file.endswith(".md") or file.endswith(".txt"):
+                path = os.path.join(root, file)
+                try:
+                    with open(path, "r", encoding="utf-8") as f:
+                        content = f.read()
+                        if query.lower() in content.lower():
+                            results.append({
+                                "file": file,
+                                "snippet": content[:400] + "..."
+                            })
+                except:
+                    pass
+    return results
+
+
+# 🌐 البحث على الإنترنت (DuckDuckGo)
+def web_search(query: str):
+    with DDGS() as ddgs:
+        return [{"title": r["title"], "link": r["href"], "snippet": r["body"]}
+                for r in ddgs.text(query, region="xa-ar", max_results=3)]
+
+
+# ========================
+# واجهات التطبيق
+# ========================
 
 @app.get("/", response_class=HTMLResponse)
-async def home(_: Request):
-    if templates:
-        return templates.TemplateResponse("index.html", {"request": _})
-    return HTMLResponse(BASIC_HTML)
+async def home(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request, "version": "v3.3"})
 
-@app.get("/chatui", response_class=HTMLResponse)
-async def chatui(_: Request):
-    if templates:
-        return templates.TemplateResponse("chat.html", {"request": _})
-    return HTMLResponse(BASIC_HTML)
-
-@app.post("/search")
-async def go_chat(request: Request):
-    form = await request.form()
-    query = (form.get("query") or "").strip()
-    return RedirectResponse(url=f"/chatui?query={query}", status_code=303)
-
-def safe_run(message: str) -> str:
-    try:
-        return omni_answer(message or "")
-    except Exception as e:
-        return f"⚠️ خطأ أثناء المعالجة: {e}"
-
-@app.get("/ask")
-async def ask(query: str = ""):
-    result = safe_run(query)
-    return JSONResponse({"query": query, "result": result})
-
-@app.post("/chat")
-async def chat(request: Request):
-    try:
-        data = await request.json()
-        message = data.get("message", "")
-    except Exception:
-        message = ""
-    result = safe_run(message)
-    return JSONResponse({"answer": result})
 
 @app.get("/healthz")
-async def healthz():
-    return {"status": "ok", "app": APP_TITLE}
+def healthz():
+    return {"status": "ok"}
 
+
+@app.get("/ask")
+def ask(q: str = Query(..., description="سؤالك هنا")):
+    q = q.strip()
+    if not q:
+        return {"error": "يرجى كتابة السؤال"}
+
+    # رياضيات
+    if any(x in q for x in ["sin", "cos", "tan", "log", "exp", "x", "^"]):
+        return {"type": "math", "result": solve_math(q)}
+
+    # بحث في ملفات المعرفة (RAG)
+    rag_results = rag_search(q)
+    if rag_results:
+        return {"type": "rag", "results": rag_results[:3]}
+
+    # بحث من الإنترنت
+    web_results = web_search(q)
+    if web_results:
+        summaries = [summarize_text(r["snippet"]) for r in web_results]
+        return {"type": "web", "results": web_results, "summaries": summaries}
+
+    return {"msg": "لم أجد نتائج حول سؤالك."}
+
+
+# ========================
+# نقطة تشغيل التطبيق
+# ========================
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
