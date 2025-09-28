@@ -1,5 +1,6 @@
 # main.py — نقطة تشغيل تطبيق بسّام الذكي (Omni Brain v2.1)
 
+import os
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
@@ -52,7 +53,8 @@ button:hover{background:#1565c0}
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     if templates:
-        return templates.TemplateResponse("index.html", {"request": request})
+        # ✅ الواجهة الجديدة: نمرّر request أولًا ثم اسم القالب ثم السياق (بدون مفتاح "request")
+        return templates.TemplateResponse(request, "index.html", {})
     return HTMLResponse(BASIC_HTML)
 
 # ---------------------------
@@ -70,7 +72,8 @@ async def go_chat(request: Request):
 @app.get("/chatui", response_class=HTMLResponse)
 async def chatui(request: Request):
     if templates:
-        return templates.TemplateResponse("chat.html", {"request": request})
+        # ✅ نفس التصحيح هنا
+        return templates.TemplateResponse(request, "chat.html", {})
     # fallback بسيط لو ما في قوالب
     return HTMLResponse(BASIC_HTML)
 
@@ -110,3 +113,8 @@ async def chat(request: Request):
 @app.get("/healthz")
 async def healthz():
     return {"status": "ok"}
+
+# تشغيل محليًا (أو عند بعض المنصات تحتاجه)
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
