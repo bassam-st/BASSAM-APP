@@ -15,7 +15,7 @@ from wikipedia import summary as wiki_summary
 from sympy import sympify, diff, integrate
 
 # ✅ Sumy (الاستدعاء الصحيح)
-from sumy.parsers.text import PlaintextParser
+from sumy.parsers.text import PlaintexTParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.text_rank import TextRankSummarizer
 
