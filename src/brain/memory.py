@@ -1,17 +1,13 @@
-# brain/memory.py
-from typing import List, Tuple
+# src/memory/memory.py — ذاكرة بسيطة على diskcache
 
-class Memory:
-    """ذاكرة خفيفة داخل الذاكرة (بدون ملفات)."""
-    def __init__(self) -> None:
-        self._items: List[Tuple[str, str]] = []  # (role, text)
+from diskcache import Cache
+cache = Cache(".cache")
 
-    def add(self, role: str, text: str) -> None:
-        self._items.append((role, text))
-        if len(self._items) > 200:
-            self._items.pop(0)
+def _key(user_id: str, field: str) -> str:
+    return f"user:{user_id}:{field}"
 
-    def last(self, n: int = 5) -> List[Tuple[str, str]]:
-        return self._items[-n:]
+def remember(user_id: str, field: str, value):
+    cache.set(_key(user_id, field), value, expire=None)
 
-memory = Memory()
+def recall(user_id: str, field: str, default=None):
+    return cache.get(_key(user_id, field), default)
