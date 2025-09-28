@@ -1,4 +1,6 @@
 # src/brain/omni_brain.py
+# النسخة المتقدمة: أدوات محلية + RAG + Gemini + ويب + ذاكرة مستخدم
+
 import os, re, math, json, time
 from datetime import datetime
 from dateutil import parser as dateparser
@@ -18,6 +20,9 @@ from sympy import sympify, diff, integrate
 from sumy.parsers.plaintext import PlainTextParser
 from sumy.nlp.tokenizers import Tokenizer
 from sumy.summarizers.text_rank import TextRankSummarizer
+
+# ✅ ذاكرة المستخدم
+from src.memory.memory import remember, recall
 
 # ✅ RAG
 import faiss
@@ -145,7 +150,7 @@ def answer_empathy(q: str) -> Optional[str]:
     return None
 
 # ===== Beauty Coach (العناية والجمال) =====
-BEAUTY_PAT = re.compile(r"(بشرة|تفتيح|بياض|غسول|رتينول|فيتامين|شعر|تساقط|قشره|حب شباب|حبو|رؤوس سوداء|ترطيب|واقي|رشاقه|تخسيس|رجيم)", re.I)
+BEAUTY_PAT = re.compile(r"(بشرة|تفتيح|بياض|غسول|رتينول|فيتامين|شعر|تساقط|قشره|حب شباب|حبوب|رؤوس سوداء|ترطيب|واقي|رشاقه|تخسيس|رجيم)", re.I)
 def beauty_coach(q: str) -> Optional[str]:
     if not BEAUTY_PAT.search(q): return None
     ql = q.lower()
@@ -184,8 +189,8 @@ def answer_rag(q: str, k: int = 4) -> Optional[str]:
 
     # 2) عبر retriever (ملفات على القرص)
     try:
-        hits = rag_file_query(q, top_k=k)  # [(file, snippet), ...] أو تحذير
-        if len(hits) == 1 and "لم يتم إنشاء الفهرس" in hits[0][0]:
+        hits = rag_file_query(q, top_k=k)
+        if len(hits) == 1 and isinstance(hits[0], tuple) and "لم يتم إنشاء الفهرس" in hits[0][0]:
             return None
         ctx  = "\n\n".join(snippet for _, snippet in hits)
         srcs = [fname for fname, _ in hits]
@@ -227,7 +232,7 @@ def answer_from_web(q: str) -> str:
     cache.set(key, ans, expire=3600)
     return ans
 
-# ===== الموجّه الرئيسي =====
+# ===== الموجّه الرئيسي (بدون ذاكرة) =====
 def omni_answer(q: str) -> str:
     q = AR(q)
     if not q: return "اكتب/ي سؤالك أولًا."
@@ -251,3 +256,53 @@ def omni_answer(q: str) -> str:
 
     # 4) ويب + تلخيص محلي
     return answer_from_web(q)
+
+# ===== خط الأنابيب مع الذاكرة (Memory) =====
+def _extract_name(text: str) -> Optional[str]:
+    # محاولات بسيطة لاستخراج الاسم من جملة التعريف
+    m = re.search(r"(?:اسمي|انا اسمي|أنا اسمي|my name is)\s+([^\.,\|\n\r]+)", text, re.I)
+    if m:
+        name = m.group(1).strip()
+        # تنظيف سريع
+        name = re.sub(r"[^\w\u0600-\u06FF\s\-']", "", name)
+        return name[:40]
+    return None
+
+def qa_pipeline(query: str, user_id: str = "guest") -> str:
+    """
+    الذكاء الرئيسي لتطبيق بسّام مع ذاكرة المستخدم:
+    - يتعرّف على الاسم ويحفظه
+    - يخصص بعض الردود باستخدام الاسم
+    - يحفظ آخر سؤال
+    """
+    q = AR(query or "")
+    if not q:
+        return "اكتب/ي سؤالك أولاً."
+
+    # اكتشاف وتخزين الاسم
+    possible_name = _extract_name(q)
+    if possible_name:
+        remember(user_id, "name", possible_name)
+        return f"تشرفت بمعرفتك يا {possible_name} 🌟"
+
+    # تخصيص الردود بالاسم إن وُجد
+    name = recall(user_id, "name", None)
+    if name:
+        if re.search(r"(شكرا|ثنكيو|thanks)", q, re.I):
+            remember(user_id, "last_query", q)
+            return f"العفو يا {name}! يسعدني أساعدك دائمًا 🙏"
+        if re.search(r"(كيفك|شلونك|اخبارك)", q):
+            remember(user_id, "last_query", q)
+            return f"تمام الحمدلله، وأنت يا {name}؟ 😊"
+
+    # الرد الافتراضي عبر الموجه الرئيسي
+    answer = omni_answer(q)
+
+    # حفظ آخر سؤال
+    remember(user_id, "last_query", q)
+
+    # إضافة لمسة بسيطة بالاسم عند توفره
+    if name and isinstance(answer, str) and len(answer) < 400:
+        answer = f"{answer}\n\n— معك بسّام، دايمًا حاضر يا {name} 🌟"
+
+    return answer
