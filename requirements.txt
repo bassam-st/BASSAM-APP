@@ -1,48 +1,32 @@
-# ⚙️ الإطار الأساسي للتطبيق
-fastapi
-uvicorn
-jinja2
-python-multipart
+fastapi>=0.111,<0.114
+uvicorn>=0.23,<0.31
+jinja2>=3.1
+python-multipart>=0.0.9
+sse-starlette>=1.8.2
 
-# 🔴 البثّ الحي للردود (Streaming)
-sse-starlette
+httpx>=0.27
+beautifulsoup4>=4.12
+readability-lxml>=0.8.1
+duckduckgo_search>=6.1.3
 
-# 🌍 الشبكة والويب
-httpx
-beautifulsoup4
-readability-lxml
-duckduckgo_search
-
-# 🧠 التلخيص والبحث المحلي
 sumy==0.11.0
-rank-bm25
-rapidfuzz
-wikipedia
+rank-bm25>=0.2.2
+rapidfuzz>=3.6
+wikipedia==1.4.0
 googletrans==4.0.0-rc1
 
-# 🤖 الذكاء الاصطناعي (اختياري)
-google-generativeai
+google-generativeai>=0.7.2
 
-# 📐 الرياضيات والمنطق
-sympy
-numpy
+sympy>=1.12
+numpy>=1.26,<2.0      # لتجنّب مشاكل مع بعض المكتبات
+diskcache>=5.6
 
-# 💾 التخزين المؤقت
-diskcache
+psycopg2-binary>=2.9
 
-# 🧮 قاعدة البيانات (اختياري)
-psycopg2-binary
+fpdf>=1.7.2
+pyarabic>=0.6.15
+python-dateutil>=2.9
 
-# 📄 إنشاء ملفات PDF (اختياري)
-fpdf
-
-# 🇸🇦 اللغة العربية ومعالجة النصوص
-pyarabic
-
-# 📅 التواريخ والتحليل الزمني
-python-dateutil
-
-# 📚 الذكاء المعرفي (RAG: فهرسة واسترجاع من PDF)
-sentence-transformers
-faiss-cpu
-pymupdf
+sentence-transformers>=2.7
+faiss-cpu>=1.8.0
+pymupdf>=1.24
