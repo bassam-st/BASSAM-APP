@@ -1,16 +1,32 @@
-<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8" />
-<title>Bassam App (v3.1)</title>
-<link rel="stylesheet" href="/static/chat.css" />
-<body>
-  <div class="container">
-    <h1>أهلًا بك في <b>Bassam App (v3.1)</b> 👋</h1>
-    <p>ابدأ من <a href="/chatui">واجهة المحادثة</a> أو استخدم الروابط السريعة:</p>
-    <ul>
-      <li><code>/healthz</code> — فحص الصحة</li>
-      <li><code>/ask?q=الذكاء الاصطناعي</code> — إجابة ذكية</li>
-      <li><code>/search?q=الذكاء الاصطناعي</code> — بحث ويب</li>
-      <li><code>/summarize?text=نص طويل..&amp;sentences=5</code> — تلخيص</li>
-    </ul>
-  </div>
-</body>
+<!doctype html>
+<html lang="ar" dir="rtl">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bassam الذكي — v3.2</title>
+<style>
+body{font-family:system-ui;background:#0b1020;color:#fff;margin:0}
+.container{max-width:900px;margin:auto;padding:20px}
+.input-row{display:flex;gap:10px;margin-top:15px}
+input{flex:1;padding:10px;border-radius:8px;border:none;background:#111a33;color:#fff}
+button{background:#3a6eff;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-weight:bold;cursor:pointer}
+.chat{background:#10182e;border-radius:12px;padding:15px;min-height:60vh;overflow:auto;margin-top:20px}
+.msg{margin:8px 0;padding:10px;border-radius:10px;line-height:1.6}
+.user{background:#162550}.bot{background:#0f1a38}
+a{color:#8fb1ff}
+</style>
+<div class="container">
+  <h2>🤖 بسّام الذكي — v3.2</h2>
+  <div class="chat" id="chat"><div class="msg bot">مرحبًا! اكتب سؤالك بالعربي وسأجيبك ✨</div></div>
+  <div class="input-row"><input id="q" placeholder="اكتب سؤالك…"><button id="send">إرسال</button></div>
+  <p>الصحة: <a href="/healthz" target="_blank">/healthz</a> • واجهة قديمة: <a href="/chatui" target="_blank">/chatui</a></p>
+</div>
+<script>
+const chat=document.getElementById('chat'),q=document.getElementById('q'),send=document.getElementById('send');
+function push(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
+async function ask(){const text=q.value.trim();if(!text)return;push('user',text);q.value='';send.disabled=true;
+try{const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});
+const j=await r.json();push('bot',j.answer||'—');}catch(e){push('bot','⚠️ خطأ أثناء الاتصال بالخادم.');}
+finally{send.disabled=false;q.focus();}}
+send.onclick=ask;q.addEventListener('keydown',e=>{if(e.key==='Enter'){ask();}});
+</script>
 </html>
