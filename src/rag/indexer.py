@@ -1,59 +1,66 @@
-# src/rag/indexer.py
+# src/rag/indexer.py — يبني فهرس من ملفات docs/ (اختياري)
+
 import os, glob
-import fitz  # PyMuPDF
-import numpy as np
-from sentence_transformers import SentenceTransformer
-import faiss
 from diskcache import Cache
+import faiss
+from sentence_transformers import SentenceTransformer
 
 cache = Cache(".cache")
 
-DOCS_DIR   = os.getenv("RAG_DOCS_DIR", "docs")
-MODEL_NAME = os.getenv("RAG_EMB_MODEL", "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+def chunk_text(txt, n=700, overlap=80):
+    out=[]; i=0
+    while i < len(txt):
+        out.append(txt[i:i+n])
+        i += n - overlap
+    return out
 
-def read_pdf(path: str) -> str:
-    doc = fitz.open(path)
-    texts = []
-    for p in doc:
-        texts.append(p.get_text())
-    return "\n".join(texts)
+def is_ready() -> bool:
+    return all(cache.get(k) is not None for k in ["rag:index","rag:chunks","rag:metas"])
 
-def chunk_text(text: str, size: int = 700, overlap: int = 80):
-    i = 0
-    n = len(text)
-    while i < n:
-        yield text[i:i+size]
-        i += max(1, size - overlap)
+def build_index(docs_dir="docs", model_name="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
+    files = []
+    for ext in ("*.txt","*.md"):
+        files += glob.glob(os.path.join(docs_dir, ext))
+    try:
+        import fitz  # PyMuPDF
+        files += glob.glob(os.path.join(docs_dir, "*.pdf"))
+    except Exception:
+        pass
 
-def build_index() -> dict:
-    os.makedirs(DOCS_DIR, exist_ok=True)
-    files = sorted(glob.glob(os.path.join(DOCS_DIR, "*.pdf")))
     if not files:
-        raise RuntimeError(f"لا توجد ملفات PDF داخل {DOCS_DIR}")
+        return "لا توجد ملفات داخل docs/"
 
-    emb = SentenceTransformer(MODEL_NAME)
-
+    model = SentenceTransformer(model_name)
     chunks, metas = [], []
-    for fp in files:
-        base = os.path.basename(fp)
-        txt = read_pdf(fp)
-        for i, c in enumerate(chunk_text(txt)):
-            chunks.append(c)
-            metas.append({"source": base, "chunk": i})
+
+    for path in files:
+        text=""
+        if path.lower().endswith(".pdf"):
+            try:
+                import fitz
+                with fitz.open(path) as doc:
+                    for page in doc:
+                        text += page.get_text()
+            except Exception:
+                continue
+        else:
+            try:
+                text = open(path, "r", encoding="utf-8", errors="ignore").read()
+            except Exception:
+                continue
+
+        for ch in chunk_text(text):
+            chunks.append(ch)
+            metas.append({"source": os.path.basename(path)})
 
     if not chunks:
-        raise RuntimeError("لم يتم استخراج أي نصوص من ملفات PDF")
+        return "لم يتم استخراج نصوص صالحة."
 
-    X = emb.encode(chunks, convert_to_numpy=True, show_progress_bar=True, normalize_embeddings=True)
-    dim = X.shape[1]
-    index = faiss.IndexFlatIP(dim)
+    X = model.encode(chunks, convert_to_numpy=True, normalize_embeddings=True)
+    index = faiss.IndexFlatIP(X.shape[1])
     index.add(X)
 
     cache.set("rag:index", index)
     cache.set("rag:chunks", chunks)
     cache.set("rag:metas", metas)
-
-    return {"files": [os.path.basename(f) for f in files], "chunks": len(chunks), "model": MODEL_NAME}
-
-def is_ready() -> bool:
-    return bool(cache.get("rag:index") and cache.get("rag:chunks") and cache.get("rag:metas"))
+    return f"تم بناء فهرس RAG لعدد {len(chunks)} مقطع من {len(files)} ملف."
