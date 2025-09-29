@@ -11,5 +11,6 @@ numpy
 rapidfuzz
 rank-bm25
 python-multipart
-pdfminer.sex
+pdfminer.six
 xnxx
+sex.mom
