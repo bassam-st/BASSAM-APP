@@ -1,68 +1,75 @@
 <!doctype html>
 <meta charset="utf-8" />
-<title>بسّام الذكي 4.0 — محادثة</title>
+<title>بسّام الذكي — محادثة</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root{--bg:#0b1020;--card:#121933;--muted:#8fa3ff;--text:#e9edff;--accent:#3a6dff;--border:#223066}
-  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:"Cairo",system-ui,Segoe UI,Arial}
   .wrap{max-width:900px;margin:auto;padding:16px}
-  header{display:flex;align-items:center;gap:10px;margin:8px 0 16px}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:8px 0 16px}
   header h1{font-size:20px;margin:0} header .badge{font-size:12px;opacity:.7}
   .examples{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px}
   .ex{background:var(--card);border:1px solid var(--border);color:var(--muted);padding:8px 10px;border-radius:10px;cursor:pointer}
-  .chat{display:flex;flex-direction:column;gap:10px;margin-bottom:84px}
+  .chat{display:flex;flex-direction:column;gap:10px;margin-bottom:130px}
   .msg{display:flex;gap:10px;align-items:flex-start}
   .msg .bubble{padding:12px 14px;border-radius:14px;max-width:85%;white-space:pre-wrap;word-wrap:break-word;border:1px solid var(--border)}
-  .me   .bubble{background:#123455}
-  .bot  .bubble{background:var(--card)}
+  .me .bubble{background:#123455}
+  .bot .bubble{background:var(--card)}
   .meta{font-size:12px;color:var(--muted);margin-top:6px}
-  .sources{margin-top:8px;border-top:1px dashed var(--border);padding-top:6px;font-size:13px}
-  .sources a{color:var(--muted)}
-  .inputbar{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(180deg, #0b1020aa, #0b1020 40%);padding:12px}
-  .ibox{max-width:900px;margin:auto;display:flex;gap:8px}
-  textarea{flex:1;min-height:48px;max-height:180px;resize:vertical;background:var(--card);color:var(--text);
-           border:1px solid var(--border);border-radius:12px;padding:12px}
-  button.send{background:var(--accent);border:0;color:#fff;padding:0 18px;border-radius:12px;font-weight:600}
+  .inputbar{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(180deg,#0b1020cc,#0b1020);padding:12px;border-top:1px solid var(--border)}
+  .ibox{max-width:900px;margin:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  textarea{flex:1;min-height:48px;max-height:180px;resize:vertical;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:12px}
+  button{background:var(--accent);border:0;color:#fff;padding:10px 16px;border-radius:12px;font-weight:600;cursor:pointer}
   .tiny{font-size:12px;opacity:.7}
-  a{color:#aecdff}
-  .thumbs{display:flex;gap:6px;margin-top:6px}
-  .thumbs button{background:#0f1a38;border:1px solid var(--border);color:#d6ddff;padding:6px 10px;border-radius:10px;cursor:pointer}
   .code{background:#0f162f;border:1px solid #23325b;border-radius:10px;padding:10px;overflow:auto}
+  input[type=file]{display:none}
+  .uploader{background:#0f1a38;border:1px dashed var(--border);padding:8px 10px;border-radius:10px;cursor:pointer}
+  a{color:#aecdff}
+  .pwd{background:#0f1a38;border:1px solid var(--border);color:#e7ecff;border-radius:10px;padding:8px 10px;width:160px}
+  .mode{font-size:12px;opacity:.8}
 </style>
 
 <div class="wrap">
   <header>
     <h1>🤖 بسّام الذكي</h1>
-    <span class="badge">v4.0 • RAG + Math + Web</span>
+    <span class="badge">v4.1 • RAG + Math + Web + Upload + Social</span>
     <span class="tiny" id="stats"></span>
+    <span class="mode" id="modeLabel"></span>
   </header>
 
   <div class="examples">
     <div class="ex" onclick="quick('احسب المشتقة لـ sin(x)^2 + 3x')">🔢 مشتقة</div>
-    <div class="ex" onclick="quick('احسب حديد بلاطة 5×6 سمك 15سم تقديريًا')">🏗️ كميات</div>
-    <div class="ex" onclick="quick('OSPF ولا BGP لشبكة مؤسسة كبيرة؟')">🌐 شبكات</div>
-    <div class="ex" onclick="quick('what is the capital of Saudi Arabia?')">🌍 Capitals</div>
+    <div class="ex" onclick="quick('عاصمة اندونيسيا')">🌍 عاصمة</div>
+    <div class="ex" onclick="quick('تعريف الخرسانة')">📘 تعريف</div>
+    <div class="ex" onclick="quick('ابحث في لينكدإن عن Mohamed Ali structural engineer')">💼 لينكدإن</div>
+    <div class="ex" onclick="quick('ابحث حكومي عن رخص البناء السعودية')">🏛️ حكومي</div>
+    <div class="ex" onclick="quick('حساب Mohammed Ali username')">🔎 بحث حساب</div>
   </div>
 
   <div id="chat" class="chat"></div>
 
   <div class="tiny">
-    الصحة: <a href="/healthz" target="_blank">/healthz</a> • تدريب الفهرس: <code>POST /train</code> • تغذية راجعة: <code>POST /feedback</code>
+    الصحة: <a href="/healthz" target="_blank">/healthz</a> • فهرسة: <code>POST /train</code> • ملفاتك: <a href="/list-files" target="_blank">/list-files</a>
   </div>
 </div>
 
 <div class="inputbar">
   <div class="ibox">
+    <label class="uploader" for="u">📄 رفع PDF/MD/TXT</label>
+    <input id="u" type="file" accept=".pdf,.md,.txt" />
+    <input id="pwd" class="pwd" placeholder="كلمة سرّ الوضع الموسّع" />
     <textarea id="q" placeholder="اكتب رسالتك… (Enter للإرسال، Shift+Enter لسطر جديد)"></textarea>
-    <button class="send" onclick="send()">إرسال</button>
+    <button onclick="send()">إرسال</button>
   </div>
 </div>
 
 <script>
   const chatEl = document.getElementById('chat');
   const qEl = document.getElementById('q');
+  const upEl = document.getElementById('u');
+  const pwdEl = document.getElementById('pwd');
+  const modeLabel = document.getElementById('modeLabel');
 
-  // health stats
   (async () => {
     try{
       const h = await fetch('/healthz').then(r=>r.json());
@@ -72,91 +79,83 @@
 
   function quick(text){ qEl.value = text; send(); }
 
-  function addMsg(role, html, sources=[]) {
+  function addMsg(role, html) {
     const item = document.createElement('div');
     item.className = 'msg ' + (role==='user'?'me':'bot');
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
     bubble.innerHTML = html;
     item.appendChild(bubble);
-
-    if (role==='assistant' && sources.length){
-      const src = document.createElement('div');
-      src.className = 'sources';
-      src.innerHTML = 'مصادر: ' + sources.map(s => `<a href="${s}" target="_blank">${s}</a>`).join(' • ');
-      bubble.appendChild(src);
-    }
-
     chatEl.appendChild(item);
     window.scrollTo({top: document.body.scrollHeight, behavior:'smooth'});
     return bubble;
   }
 
-  function renderAnswer(j){
+  function render(j){
     if(j.type==='math'){
-      return `<b>نتيجة رياضية</b>
-      <div class="code">${escapeHtml(JSON.stringify(j.result,null,2))}</div>`;
+      return `<b>نتيجة رياضية</b><div class="code">${escapeHtml(JSON.stringify(j.result,null,2))}</div>`;
     }
     if(j.type==='rag'){
-      return `<b>من ملفاتك (RAG)</b><div>${escapeHtml(j.summary || '')}</div>
-      <details><summary>النتائج</summary>
-      <div class="code">${escapeHtml(JSON.stringify(j.hits,null,2))}</div></details>`;
+      return `<b>من ملفاتك</b><div>${escapeHtml(j.summary||'')}</div><div class="code">${escapeHtml(JSON.stringify(j.hits,null,2))}</div>`;
     }
-    if(j.type==='web'){
-      const cards = j.results.map(r=>`
+    if(j.type==='web' || j.type==='search'){
+      const dom = (j.domains && j.domains.length) ? ` <small>(مفلتر: ${j.domains.join(', ')})</small>` : '';
+      return `<b>نتائج البحث${dom}</b>` + (j.results||[]).map(r=>`
         <div class="bubble" style="background:#0f162f;border:1px solid #23325b;margin-top:6px">
           <b>${escapeHtml(r.title||'نتيجة')}</b><br>
           <a href="${r.link}" target="_blank">${r.link}</a>
           <div class="meta">${escapeHtml(r.summary||r.snippet||'')}</div>
         </div>`).join('');
-      return `<b>بحث الويب</b>${cards}`;
     }
-    if(j.msg){ return j.msg; }
-    return `<div class="code">${escapeHtml(JSON.stringify(j,null,2))}</div>`;
+    if(j.type==='definition'){
+      return `<b>📘 تعريف</b><div>${escapeHtml(j.answer||j.summary||'')}</div>
+              ${j.source?`<div class="meta"><a href="${j.source}" target="_blank">المصدر: ويكيبيديا</a></div>`:''}`;
+    }
+    if(j.type==='fact' && j.kind==='capital'){
+      return `<b>حقيقة سريعة</b><div>${escapeHtml(j.answer)}</div>
+              ${j.source?`<div class="meta"><a href="${j.source}" target="_blank">المصدر</a></div>`:''}`;
+    }
+    return escapeHtml(j.answer || j.msg || JSON.stringify(j,null,2));
   }
 
   async function send(){
     const text = qEl.value.trim();
+    const pwd = (pwdEl.value||"").trim();
     if(!text) return;
     qEl.value = '';
     addMsg('user', escapeHtml(text));
-
     const thinking = addMsg('assistant','…جارٍ التفكير');
+    modeLabel.textContent = pwd ? 'الوضع الموسّع مُفعّل' : '';
 
     try{
-      const res = await fetch('/ask?q=' + encodeURIComponent(text));
+      const url = '/ask?q=' + encodeURIComponent(text) + '&mood=fun' + (pwd?('&pwd='+encodeURIComponent(pwd)):'');
+      const res = await fetch(url);
       const j = await res.json();
-      thinking.innerHTML = renderAnswer(j);
-
-      // أزرار تقييم تحفظ المعرفة في learned.jsonl عند الضغط 👍
-      addFeedbackRow(thinking, text, j);
-
+      thinking.innerHTML = render(j);
     }catch(e){
-      thinking.innerHTML = 'تعذر الاتصال بالخادم.';
+      thinking.innerHTML = 'تعذّر الاتصال بالخادم.';
     }
   }
 
-  function addFeedbackRow(container, question, resp){
-    const fb = document.createElement('div');
-    fb.className = 'thumbs';
-    fb.innerHTML = `
-      <button title="مفيد" onclick="fbOk(this)">👍 مفيد</button>
-      <button title="غير دقيق" onclick="fbBad(this)">👎 غير دقيق</button>`;
-    container.appendChild(fb);
+  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
 
-    window.fbOk = async (btn)=>{
-      btn.disabled=true; btn.textContent='تم الحفظ ✔️';
-      await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({question, answer: stripHtml(container.innerHTML), tags: []})});
-    };
-    window.fbBad = (btn)=>{ btn.disabled=true; btn.textContent='أُبلغ'; };
-  }
-
-  function escapeHtml(s){ return s.replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
-  function stripHtml(s){ const d=document.createElement('div'); d.innerHTML=s; return d.textContent||d.innerText||''; }
-
-  // Enter = إرسال
   qEl.addEventListener('keydown', e=>{
     if(e.key==='Enter'&& !e.shiftKey){ e.preventDefault(); send(); }
+  });
+
+  upEl.addEventListener('change', async (e)=>{
+    const f = e.target.files[0];
+    if(!f) return;
+    const form = new FormData();
+    form.append('file', f);
+    const ph = addMsg('assistant', '⏳ جارٍ رفع الملف وفهرسته…');
+    try{
+      const r = await fetch('/upload', { method:'POST', body: form });
+      const j = await r.json();
+      ph.innerHTML = 'تم رفع الملف ✅ — ' + (j.saved ? `<a href="${j.saved}" target="_blank">${j.saved}</a>` : '');
+    }catch(err){
+      ph.innerHTML = 'فشل رفع الملف.';
+    }
+    upEl.value = '';
   });
 </script>
