@@ -4,7 +4,7 @@ jinja2
 httpx
 beautifulsoup4
 readability-lxml
-duckduckgo-search
+duckduckgo_search
 wikipedia
 sumy==0.11.0
 sympy==1.12
@@ -13,4 +13,4 @@ rapidfuzz
 rank-bm25
 diskcache
 python-multipart
-textblob
+textblob==0.17.1
