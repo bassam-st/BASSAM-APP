@@ -13,3 +13,4 @@ rapidfuzz
 rank-bm25
 diskcache
 python-multipart
+textblob
