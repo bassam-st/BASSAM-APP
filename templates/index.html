@@ -1,161 +1,182 @@
 <!doctype html>
-<meta charset="utf-8" />
-<title>بسّام الذكي — محادثة</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>بسّام الذكي v3.5</title>
 <style>
-  :root{--bg:#0b1020;--card:#121933;--muted:#8fa3ff;--text:#e9edff;--accent:#3a6dff;--border:#223066}
-  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:"Cairo",system-ui,Segoe UI,Arial}
-  .wrap{max-width:900px;margin:auto;padding:16px}
-  header{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin:8px 0 16px}
-  header h1{font-size:20px;margin:0} header .badge{font-size:12px;opacity:.7}
-  .examples{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px}
-  .ex{background:var(--card);border:1px solid var(--border);color:var(--muted);padding:8px 10px;border-radius:10px;cursor:pointer}
-  .chat{display:flex;flex-direction:column;gap:10px;margin-bottom:130px}
-  .msg{display:flex;gap:10px;align-items:flex-start}
-  .msg .bubble{padding:12px 14px;border-radius:14px;max-width:85%;white-space:pre-wrap;word-wrap:break-word;border:1px solid var(--border)}
-  .me .bubble{background:#123455}
-  .bot .bubble{background:var(--card)}
-  .meta{font-size:12px;color:var(--muted);margin-top:6px}
-  .inputbar{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(180deg,#0b1020cc,#0b1020);padding:12px;border-top:1px solid var(--border)}
-  .ibox{max-width:900px;margin:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  textarea{flex:1;min-height:48px;max-height:180px;resize:vertical;background:var(--card);color:var(--text);border:1px solid var(--border);border-radius:12px;padding:12px}
-  button{background:var(--accent);border:0;color:#fff;padding:10px 16px;border-radius:12px;font-weight:600;cursor:pointer}
-  .tiny{font-size:12px;opacity:.7}
-  .code{background:#0f162f;border:1px solid #23325b;border-radius:10px;padding:10px;overflow:auto}
-  input[type=file]{display:none}
-  .uploader{background:#0f1a38;border:1px dashed var(--border);padding:8px 10px;border-radius:10px;cursor:pointer}
-  a{color:#aecdff}
-  .pwd{background:#0f1a38;border:1px solid var(--border);color:#e7ecff;border-radius:10px;padding:8px 10px;width:160px}
-  .mode{font-size:12px;opacity:.8}
+  :root{
+    --bg:#0b1020; --panel:#141b2e; --muted:#9fb4ff; --text:#e7ecff; --brand:#4f6ef7; --border:#223066;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto; margin:0}
+  .wrap{max-width:1000px;margin:28px auto;padding:0 14px}
+  h1{margin:0 0 12px;font-weight:700}
+  .bar{display:flex;gap:8px;align-items:center;margin:10px 0 14px}
+  .in{flex:1;padding:14px 16px;border-radius:12px;border:1px solid var(--border);background:#0f1a38;color:#fff}
+  .btn{padding:12px 16px;border-radius:12px;border:1px solid var(--border);background:var(--brand);color:#fff;cursor:pointer}
+  .btn:disabled{opacity:.6;cursor:not-allowed}
+  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px}
+  .chip{background:#0f1a38;border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:999px;cursor:pointer}
+  .row{display:flex;gap:16px;align-items:center}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:14px;margin:12px 0}
+  .muted{color:var(--muted)}
+  .badge{background:#0f1a38;border:1px solid var(--border);padding:3px 8px;border-radius:999px;font-size:12px}
+  pre{white-space:pre-wrap;word-wrap:break-word;background:#0f1429;border:1px solid var(--border);padding:12px;border-radius:12px}
+  .flex{display:flex;gap:8px;align-items:center}
+  .space{height:8px}
+  a{color:#9dc1ff}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+  .linkCard{background:#0f1429;border:1px solid var(--border);border-radius:12px;padding:10px}
+  .footer{opacity:.7;font-size:13px;margin:18px 0}
 </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🤖 بسّام الذكي <span class="badge">v3.5</span></h1>
+    <div class="muted">اكتب سؤالك بالعربي أو الإنجليزي. جرّب أمثلة سريعة بالأسفل.</div>
 
-<div class="wrap">
-  <header>
-    <h1>🤖 بسّام الذكي</h1>
-    <span class="badge">v4.1 • RAG + Math + Web + Upload + Social</span>
-    <span class="tiny" id="stats"></span>
-    <span class="mode" id="modeLabel"></span>
-  </header>
+    <div class="bar">
+      <input id="q" class="in" placeholder="مثال: صمّم كمرة 6م Mu=120 kN·m … أو: اكتب دالة Python تجمع قائمتين">
+      <button id="send" class="btn" onclick="ask()">إرسال</button>
+    </div>
 
-  <div class="examples">
-    <div class="ex" onclick="quick('احسب المشتقة لـ sin(x)^2 + 3x')">🔢 مشتقة</div>
-    <div class="ex" onclick="quick('عاصمة اندونيسيا')">🌍 عاصمة</div>
-    <div class="ex" onclick="quick('تعريف الخرسانة')">📘 تعريف</div>
-    <div class="ex" onclick="quick('ابحث في لينكدإن عن Mohamed Ali structural engineer')">💼 لينكدإن</div>
-    <div class="ex" onclick="quick('ابحث حكومي عن رخص البناء السعودية')">🏛️ حكومي</div>
-    <div class="ex" onclick="quick('حساب Mohammed Ali username')">🔎 بحث حساب</div>
+    <div class="chips" id="examples">
+      <span class="chip">ما هي طبقات OSI؟</span>
+      <span class="chip">صمّم كمرة 6م Mu=120 kN·m</span>
+      <span class="chip">ما عاصمة ألمانيا؟</span>
+      <span class="chip">اشرح REST API ببساطة</span>
+      <span class="chip">اكتب سكربت بايثون يحسب مشتقة sin(x)*x^2</span>
+      <span class="chip">احسب هبوط الجهد لكابل 150م 100A ثلاثي الأوجه 400V</span>
+      <span class="chip">ما الفرق بين TCP و UDP؟</span>
+    </div>
+
+    <div id="out" class="card">
+      <div class="muted">النتائج ستظهر هنا…</div>
+    </div>
+
+    <div class="flex">
+      <button class="btn" style="background:#2a3b8f" onclick="copyLast()">نسخ النتيجة</button>
+      <button class="btn" style="background:#1f7a4f" onclick="sendFeedback(true)">👍 مفيد</button>
+      <button class="btn" style="background:#8f2a2a" onclick="sendFeedback(false)">👎 غير دقيق</button>
+      <span class="muted" id="fbMsg"></span>
+    </div>
+
+    <div class="footer">
+      روابط سريعة:
+      <a href="/healthz" target="_blank">healthz</a> •
+      <a href="https://github.com" target="_blank">GitHub</a>
+    </div>
   </div>
-
-  <div id="chat" class="chat"></div>
-
-  <div class="tiny">
-    الصحة: <a href="/healthz" target="_blank">/healthz</a> • فهرسة: <code>POST /train</code> • ملفاتك: <a href="/list-files" target="_blank">/list-files</a>
-  </div>
-</div>
-
-<div class="inputbar">
-  <div class="ibox">
-    <label class="uploader" for="u">📄 رفع PDF/MD/TXT</label>
-    <input id="u" type="file" accept=".pdf,.md,.txt" />
-    <input id="pwd" class="pwd" placeholder="كلمة سرّ الوضع الموسّع" />
-    <textarea id="q" placeholder="اكتب رسالتك… (Enter للإرسال، Shift+Enter لسطر جديد)"></textarea>
-    <button onclick="send()">إرسال</button>
-  </div>
-</div>
 
 <script>
-  const chatEl = document.getElementById('chat');
   const qEl = document.getElementById('q');
-  const upEl = document.getElementById('u');
-  const pwdEl = document.getElementById('pwd');
-  const modeLabel = document.getElementById('modeLabel');
+  const out = document.getElementById('out');
+  const sendBtn = document.getElementById('send');
+  const ex = document.getElementById('examples');
+  let lastQ = "", lastAnswerText = "", lastTags = [];
 
-  (async () => {
-    try{
-      const h = await fetch('/healthz').then(r=>r.json());
-      document.getElementById('stats').textContent = `docs: ${h.docs_indexed}`;
-    }catch(_){}
-  })();
+  ex.addEventListener('click', (e)=>{
+    if(e.target.classList.contains('chip')){
+      qEl.value = e.target.textContent.trim();
+      ask();
+    }
+  });
 
-  function quick(text){ qEl.value = text; send(); }
+  qEl.addEventListener('keydown', (e)=>{
+    if(e.key === 'Enter'){ ask(); }
+  });
 
-  function addMsg(role, html) {
-    const item = document.createElement('div');
-    item.className = 'msg ' + (role==='user'?'me':'bot');
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    bubble.innerHTML = html;
-    item.appendChild(bubble);
-    chatEl.appendChild(item);
-    window.scrollTo({top: document.body.scrollHeight, behavior:'smooth'});
-    return bubble;
+  function renderWeb(results){
+    if(!results || !results.length) return "<div class='muted'>لا نتائج من الويب.</div>";
+    return `<div class="grid">` + results.map(r=>`
+      <div class="linkCard">
+        <div><b>${escapeHtml(r.title||'بدون عنوان')}</b></div>
+        <div><a href="${r.link}" target="_blank">${r.link}</a></div>
+        <div class="muted">${escapeHtml(r.summary||r.snippet||'')}</div>
+      </div>`).join('') + `</div>`;
   }
 
-  function render(j){
-    if(j.type==='math'){
-      return `<b>نتيجة رياضية</b><div class="code">${escapeHtml(JSON.stringify(j.result,null,2))}</div>`;
-    }
-    if(j.type==='rag'){
-      return `<b>من ملفاتك</b><div>${escapeHtml(j.summary||'')}</div><div class="code">${escapeHtml(JSON.stringify(j.hits,null,2))}</div>`;
-    }
-    if(j.type==='web' || j.type==='search'){
-      const dom = (j.domains && j.domains.length) ? ` <small>(مفلتر: ${j.domains.join(', ')})</small>` : '';
-      return `<b>نتائج البحث${dom}</b>` + (j.results||[]).map(r=>`
-        <div class="bubble" style="background:#0f162f;border:1px solid #23325b;margin-top:6px">
-          <b>${escapeHtml(r.title||'نتيجة')}</b><br>
-          <a href="${r.link}" target="_blank">${r.link}</a>
-          <div class="meta">${escapeHtml(r.summary||r.snippet||'')}</div>
-        </div>`).join('');
-    }
-    if(j.type==='definition'){
-      return `<b>📘 تعريف</b><div>${escapeHtml(j.answer||j.summary||'')}</div>
-              ${j.source?`<div class="meta"><a href="${j.source}" target="_blank">المصدر: ويكيبيديا</a></div>`:''}`;
-    }
-    if(j.type==='fact' && j.kind==='capital'){
-      return `<b>حقيقة سريعة</b><div>${escapeHtml(j.answer)}</div>
-              ${j.source?`<div class="meta"><a href="${j.source}" target="_blank">المصدر</a></div>`:''}`;
-    }
-    return escapeHtml(j.answer || j.msg || JSON.stringify(j,null,2));
+  function escapeHtml(s){
+    return (s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m]));
   }
 
-  async function send(){
-    const text = qEl.value.trim();
-    const pwd = (pwdEl.value||"").trim();
-    if(!text) return;
-    qEl.value = '';
-    addMsg('user', escapeHtml(text));
-    const thinking = addMsg('assistant','…جارٍ التفكير');
-    modeLabel.textContent = pwd ? 'الوضع الموسّع مُفعّل' : '';
-
+  async function ask(){
+    const q = qEl.value.trim();
+    if(!q){ out.innerHTML = "<div class='muted'>رجاءً اكتب سؤالك.</div>"; return; }
+    lastQ = q; lastAnswerText = ""; lastTags = [];
+    sendBtn.disabled = true; out.innerHTML = "<div class='muted'>⏳ جاري المعالجة…</div>";
     try{
-      const url = '/ask?q=' + encodeURIComponent(text) + '&mood=fun' + (pwd?('&pwd='+encodeURIComponent(pwd)):'');
-      const res = await fetch(url);
+      const res = await fetch('/ask?q=' + encodeURIComponent(q));
+      if(!res.ok){ out.innerHTML = "<div class='muted'>حدث خطأ في الخادم.</div>"; sendBtn.disabled=false; return; }
       const j = await res.json();
-      thinking.innerHTML = render(j);
+
+      if(j.type === 'math'){
+        lastAnswerText = JSON.stringify(j.result,null,2);
+        lastTags = ['math'];
+        out.innerHTML = `
+          <div class="row"><div class="badge">رياضيات</div></div>
+          <pre>${escapeHtml(lastAnswerText)}</pre>`;
+      }
+      else if(j.type === 'rag'){
+        lastAnswerText = (j.summary||'') + "\n\n" + JSON.stringify(j.hits,null,2);
+        lastTags = ['rag','local'];
+        out.innerHTML = `
+          <div class="row"><div class="badge">من ملفاتك (RAG)</div></div>
+          ${j.summary ? `<div class="card">${escapeHtml(j.summary)}</div>` : ''}
+          <pre>${escapeHtml(JSON.stringify(j.hits,null,2))}</pre>`;
+      }
+      else if(j.type === 'web'){
+        lastAnswerText = (j.results||[]).map(x=>`${x.title}\n${x.link}\n${x.summary||x.snippet||''}`).join("\n\n");
+        lastTags = ['web','search'];
+        out.innerHTML = `
+          <div class="row"><div class="badge">بحث ويب</div></div>
+          ${renderWeb(j.results)}`;
+      }
+      else if(j.msg){
+        lastAnswerText = j.msg;
+        out.innerHTML = `<div class="card">${escapeHtml(j.msg)}</div>`;
+      } else {
+        lastAnswerText = JSON.stringify(j,null,2);
+        out.innerHTML = `<pre>${escapeHtml(lastAnswerText)}</pre>`;
+      }
     }catch(e){
-      thinking.innerHTML = 'تعذّر الاتصال بالخادم.';
+      out.innerHTML = "<div class='muted'>تعذر الاتصال بالخادم.</div>";
+    }finally{
+      sendBtn.disabled = false;
     }
   }
 
-  function escapeHtml(s){ return String(s).replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+  function copyLast(){
+    if(!lastAnswerText){ return; }
+    navigator.clipboard.writeText(lastAnswerText).then(()=>{
+      flash("تم النسخ ✅");
+    });
+  }
 
-  qEl.addEventListener('keydown', e=>{
-    if(e.key==='Enter'&& !e.shiftKey){ e.preventDefault(); send(); }
-  });
-
-  upEl.addEventListener('change', async (e)=>{
-    const f = e.target.files[0];
-    if(!f) return;
-    const form = new FormData();
-    form.append('file', f);
-    const ph = addMsg('assistant', '⏳ جارٍ رفع الملف وفهرسته…');
+  async function sendFeedback(isGood){
+    if(!lastQ || !lastAnswerText){ flash("لا توجد نتيجة لإرسالها."); return; }
+    const payload = {
+      question: lastQ,
+      answer: lastAnswerText,
+      tags: [...lastTags, isGood ? 'helpful' : 'not_helpful']
+    };
     try{
-      const r = await fetch('/upload', { method:'POST', body: form });
+      const r = await fetch('/feedback', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(payload)
+      });
       const j = await r.json();
-      ph.innerHTML = 'تم رفع الملف ✅ — ' + (j.saved ? `<a href="${j.saved}" target="_blank">${j.saved}</a>` : '');
-    }catch(err){
-      ph.innerHTML = 'فشل رفع الملف.';
-    }
-    upEl.value = '';
-  });
+      if(j.ok){ flash("وصلت ملاحظتك، شكرًا ❤️"); }
+      else { flash("تعذر إرسال الملاحظة."); }
+    }catch(e){ flash("تعذر إرسال الملاحظة."); }
+  }
+
+  function flash(msg){
+    const el = document.getElementById('fbMsg');
+    el.textContent = msg;
+    setTimeout(()=>{ el.textContent = ""; }, 3000);
+  }
 </script>
+</body>
+</html>
