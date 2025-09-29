@@ -1,320 +1,434 @@
-<!doctype html>
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>بسّام الذكي v4.0</title>
-<style>
-  :root{
-    --bg:#0b1020;--panel:#11162d;--bubble:#141b2e;--bubble-user:#1e2a50;
-    --border:#223066;--text:#e7ecff;--accent:#4b6bff;--muted:#9fb3ff;--card:#0f1530;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--text);font-family:"Cairo",system-ui,Segoe UI,Arial}
-  header{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--border);padding:10px 14px;z-index:10}
-  header .bar{max-width:1000px;margin:auto;display:flex;align-items:center;justify-content:space-between}
-  h1{margin:0;font-size:18px;color:var(--muted)} h1 small{opacity:.8;font-weight:400}
-  .wrap{max-width:1000px;margin:0 auto;padding:16px}
-  /* Tabs */
-  .tabs{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
-  .tab{padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:#0f1733;cursor:pointer}
-  .tab.active{background:var(--accent);color:#fff;border-color:transparent}
-  .pane{display:none} .pane.active{display:block}
-  /* Chat */
-  .chat{display:flex;flex-direction:column;gap:10px;margin-bottom:100px}
-  .msg{max-width:85%;padding:12px 14px;border-radius:14px;border:1px solid var(--border);background:var(--bubble);white-space:pre-wrap;line-height:1.8}
-  .user{align-self:flex-start;background:var(--bubble-user)}
-  .bot{align-self:flex-end}
-  .footer{position:fixed;inset-inline:0;bottom:0;background:var(--panel);border-top:1px solid var(--border)}
-  .send{max-width:1000px;margin:10px auto;display:flex;gap:8px;padding:0 16px}
-  input[type=text]{flex:1;padding:12px;border-radius:12px;border:1px solid var(--border);background:#0f1a38;color:white}
-  button{padding:12px 16px;border:none;border-radius:12px;background:var(--accent);color:white;font-weight:700;cursor:pointer}
-  button:disabled{opacity:.6;cursor:not-allowed}
-  a{color:#8fb1ff;word-break:break-all}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:10px;margin:8px 0}
-  .mono{font-family:ui-monospace,Consolas,monospace;font-size:13px}
-  .uploader{border:1px dashed var(--border);border-radius:12px;padding:14px;background:#0f1733}
-  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .muted{opacity:.75}
-  .grid{display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}
-  .btn-sm{padding:6px 10px;border-radius:10px;background:#17306f;border:1px solid #2a3b76;color:#fff;cursor:pointer}
-  /* تفاصيل (لوحة جانبية) */
-  .drawer{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:stretch;z-index:50}
-  .drawer.open{display:flex}
-  .drawer-panel{margin-inline-start:auto;width:min(760px,100%);height:100%;background:#0b122a;border-left:1px solid #223066;display:flex;flex-direction:column}
-  .drawer-header{padding:12px 14px;border-bottom:1px solid #223066;display:flex;justify-content:space-between;align-items:center}
-  .drawer-body{padding:14px;overflow:auto}
-  .chips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
-  .chip{padding:6px 10px;border-radius:999px;background:#111c3d;border:1px solid #274086;font-size:12px}
-  .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
-</style>
-</head>
-<body>
-<header>
-  <div class="bar">
-    <h1>🤖 بسّام الذكي <small>v4.0</small></h1>
-    <div style="font-size:13px" class="muted">دردشة • بحث متقدّم • PDF • بحث عكسي بالصور • تنزيل</div>
-  </div>
-</header>
+# main.py — Bassam الذكي v4.1
+# Chat + RAG + Deep Web + Math + PDF/Image + Download + Arabic UI
 
-<div class="wrap">
-  <div class="tabs">
-    <div class="tab active" data-pane="chat">الدردشة</div>
-    <div class="tab" data-pane="pdf">رفع PDF</div>
-    <div class="tab" data-pane="image">بحث عكسي بصورة</div>
-    <div class="tab" onclick="window.open('/files_list','_blank')">📂 ملفاتي</div>
-    <div class="tab" onclick="window.open('/healthz','_blank')">الصحة</div>
-  </div>
+from fastapi import FastAPI, Request, Query, Body, UploadFile, File, HTTPException
+from fastapi.responses import HTMLResponse, Response
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 
-  <!-- CHAT -->
-  <section id="pane-chat" class="pane active">
-    <div id="chat" class="chat">
-      <div class="msg bot">
-        أهلًا! اكتب سؤالك وسأبدأ بملفاتك (RAG) ثم الويب ثم الرياضيات.
-        <div class="muted">أمثلة: “ما هي الخرسانة المسلحة؟” • “تفاضل x^3” • “ابحث في الويب عن عاصمة ألمانيا”</div>
-      </div>
-    </div>
-    <div class="footer">
-      <div class="send">
-        <input id="q" type="text" placeholder="اكتب سؤالك هنا… ثم اضغط إرسال أو Enter" onkeydown="if(event.key==='Enter'){send()}" />
-        <button id="btn" onclick="send()">إرسال</button>
-      </div>
-    </div>
-  </section>
+import os, json, time, re, shutil
+from typing import List, Dict, Any
+from urllib.parse import urlparse
 
-  <!-- PDF -->
-  <section id="pane-pdf" class="pane">
-    <div class="uploader">
-      <div class="row">
-        <input id="pdf" type="file" accept="application/pdf" />
-        <button onclick="uploadPDF()">رفع و فهرسة</button>
-      </div>
-      <div id="pdf-result" class="card mono"></div>
-      <small class="muted">بعد الرفع يُستخرج النص من PDF ويُضاف تلقائيًا إلى فهرس RAG.</small>
-    </div>
-  </section>
+# -------- Web / Text --------
+from duckduckgo_search import DDGS
+from bs4 import BeautifulSoup
+from readability import Document
 
-  <!-- IMAGE -->
-  <section id="pane-image" class="pane">
-    <div class="uploader">
-      <div class="row">
-        <input id="img" type="file" accept="image/*" capture="environment" />
-        <button onclick="uploadImage()">رفع صورة</button>
-      </div>
-      <div id="img-result" class="card"></div>
-      <small class="muted">سأعطيك روابط بحث عكسي جاهزة (Google/Bing/Yandex/TinEye) للصورة المرفوعة، ويمكن تنزيلها.</small>
-    </div>
-  </section>
-</div>
+# -------- Summarization (sumy) --------
+try:
+    from sumy.parsers.text import PlaintextParser
+except Exception:
+    from sumy.parsers.plaintext import PlaintextParser
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.text_rank import TextRankSummarizer
 
-<!-- لوحة التفاصيل -->
-<div id="drawer" class="drawer" onclick="if(event.target===this) closeDrawer()">
-  <div class="drawer-panel">
-    <div class="drawer-header">
-      <b>التفاصيل الكاملة</b>
-      <button class="btn-sm" onclick="closeDrawer()">إغلاق</button>
-    </div>
-    <div class="drawer-body">
-      <div id="detail-answer" class="card"></div>
-      <div id="detail-sources"></div>
-    </div>
-  </div>
-</div>
+# -------- Math --------
+from sympy import symbols, sympify, diff, integrate, simplify
 
-<script>
-/* ---------- Tabs ---------- */
-document.querySelectorAll('.tab[data-pane]').forEach(t=>{
-  t.addEventListener('click', ()=>{
-    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
-    t.classList.add('active');
-    const id=t.dataset.pane;
-    document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
-    document.getElementById('pane-'+id).classList.add('active');
-  });
-});
+# -------- RAG BM25 --------
+from rank_bm25 import BM25Okapi
 
-/* ---------- Chat helpers ---------- */
-const chat = document.getElementById('chat');
-const qbox = document.getElementById('q');
-const btn  = document.getElementById('btn');
+# -------- Files / PDF / Images --------
+from pypdf import PdfReader
+from PIL import Image
 
-function escapeHTML(s){return (s||'').replace(/[&<>"]/g,m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[m]))}
-function mdLite(s){ return (s||'').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\n/g,'<br>'); }
+# -------- HTTP client (download/proxy) --------
+import httpx
 
-function addMine(text){
-  const div=document.createElement('div');
-  div.className='msg user';
-  div.textContent=text;
-  chat.appendChild(div);
-  window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
+
+# =========================
+# 1) تهيئة التطبيق والمجلدات
+# =========================
+app = FastAPI(title="Bassam الذكي 🤖", version="4.1")
+
+DATA_DIR     = "data"
+NOTES_DIR    = os.path.join(DATA_DIR, "notes")
+FILES_DIR    = "files"
+UPLOADS_DIR  = os.path.join(FILES_DIR, "uploads")
+LEARN_PATH   = os.path.join(NOTES_DIR, "learned.jsonl")
+USAGE_PATH   = os.path.join(DATA_DIR,  "usage_stats.json")
+
+for d in (DATA_DIR, NOTES_DIR, FILES_DIR, UPLOADS_DIR):
+    os.makedirs(d, exist_ok=True)
+
+# ملفات استاتيكية وواجهة
+app.mount("/files", StaticFiles(directory=FILES_DIR), name="files")
+try:
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+    templates = Jinja2Templates(directory="templates")
+except Exception:
+    templates = None
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
+)
+
+
+# =========================
+# 2) أدوات مساعدة
+# =========================
+def summarize_text(text: str, max_sentences: int = 3) -> str:
+    """تلخيص خفيف عربي؛ إن فشل، قصّ أول 400 حرف."""
+    try:
+        parser = PlaintextParser.from_string(text or "", Tokenizer("arabic"))
+        sents = TextRankSummarizer()(parser.document, max_sentences)
+        return " ".join(map(str, sents)) if sents else (text or "")[:400]
+    except Exception:
+        return (text or "")[:400]
+
+def _tokenize_ar(s: str) -> List[str]:
+    return re.findall(r"[\w\u0600-\u06FF]+", (s or "").lower())
+
+def ensure_safe_filename(name: str) -> str:
+    name = re.sub(r"[^\w\-.]+", "_", name or "")
+    return name[:120] or f"file_{int(time.time())}"
+
+def log_usage():
+    try:
+        if not os.path.exists(USAGE_PATH):
+            with open(USAGE_PATH, "w", encoding="utf-8") as f:
+                json.dump({"requests": 0, "last_time": int(time.time())}, f)
+        with open(USAGE_PATH, "r+", encoding="utf-8") as f:
+            data = json.load(f)
+            data["requests"] = int(data.get("requests", 0)) + 1
+            data["last_time"] = int(time.time())
+            f.seek(0); json.dump(data, f, ensure_ascii=False); f.truncate()
+    except Exception:
+        pass
+
+def answer_bubble(text: str, sources: List[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """التنسيق الموحد لفقاعة الرد."""
+    resp = {"type": "chat", "answer": (text or "").strip()}
+    if sources:
+        out = []
+        for s in sources:
+            s = dict(s or {})
+            s["summary"] = summarize_text(s.get("snippet", "") or "", 2)
+            out.append(s)
+        resp["sources"] = out
+    return resp
+
+
+# =========================
+# 3) RAG (BM25 محلي)
+# =========================
+def _read_md_txt_files() -> List[Dict[str, str]]:
+    docs = []
+    for root, _, files in os.walk(DATA_DIR):
+        for fn in files:
+            if fn.endswith(".md") or fn.endswith(".txt"):
+                p = os.path.join(root, fn)
+                try:
+                    with open(p, "r", encoding="utf-8", errors="ignore") as f:
+                        docs.append({"file": p, "text": f.read()})
+                except:
+                    pass
+    # بنك التعلّم الذاتي
+    try:
+        if os.path.exists(LEARN_PATH):
+            with open(LEARN_PATH, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip(): 
+                        continue
+                    obj = json.loads(line)
+                    text = f"س: {obj.get('question','')}\nج: {obj.get('answer','')}\nوسوم:{','.join(obj.get('tags',[]))}"
+                    docs.append({"file": "learned", "text": text})
+    except:
+        pass
+    return docs
+
+BM25_INDEX = None
+BM25_DOCS  = []
+BM25_CORPUS = []
+
+def build_index():
+    global BM25_INDEX, BM25_DOCS, BM25_CORPUS
+    BM25_DOCS = _read_md_txt_files()
+    BM25_CORPUS = [_tokenize_ar(d["text"]) for d in BM25_DOCS]
+    BM25_INDEX = BM25Okapi(BM25_CORPUS) if BM25_CORPUS else None
+    return len(BM25_DOCS)
+
+def rag_bm25(query: str, k=3):
+    if not BM25_INDEX:
+        return []
+    toks = _tokenize_ar(query)
+    scores = BM25_INDEX.get_scores(toks)
+    pairs = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:k]
+    res = []
+    for idx, sc in pairs:
+        if sc < 1.0: 
+            continue
+        doc = BM25_DOCS[idx]
+        res.append({"file": doc["file"], "score": float(sc), "snippet": doc["text"][:1000]})
+    return res
+
+build_index()
+
+
+# =========================
+# 4) رياضيات
+# =========================
+def solve_math(expr: str):
+    try:
+        x = symbols('x')
+        parsed = sympify(expr)
+        return {
+            "input": str(parsed),
+            "simplified": str(simplify(parsed)),
+            "derivative": str(diff(parsed, x)),
+            "integral": str(integrate(parsed, x)),
+        }
+    except Exception as e:
+        return {"error": f"تعذر تحليل المعادلة: {e}"}
+
+
+# =========================
+# 5) بحث الويب (عام/متقدّم)
+# =========================
+def web_search_basic(q: str, limit: int = 8, prefer_arabic: bool = False):
+    """بحث نظيف عبر DuckDuckGo؛ يمكن تفضيل العربية بإضافة كلمة (site:.sa OR lang:ar تقريبية)."""
+    try:
+        query = q
+        if prefer_arabic:
+            query = f"{q} (site:.sa OR site:.ae OR site:.eg OR lang:ar)"
+        with DDGS() as ddgs:
+            out = []
+            for r in ddgs.text(query, region="xa-ar", safesearch="off", max_results=limit):
+                out.append({
+                    "title": r.get("title",""),
+                    "link":  r.get("href",""),
+                    "snippet": r.get("body","")
+                })
+            return out
+    except Exception:
+        return []
+
+PLATFORM_FILTERS = {
+    "social":  ["site:x.com", "site:twitter.com", "site:facebook.com", "site:instagram.com",
+                "site:linkedin.com", "site:tiktok.com", "site:reddit.com", "site:snapchat.com"],
+    "video":   ["site:youtube.com", "site:vimeo.com", "site:tiktok.com", "site:dailymotion.com"],
+    "markets": ["site:alibaba.com", "site:amazon.com", "site:aliexpress.com",
+                "site:etsy.com", "site:ebay.com", "site:noon.com"],
+    "gov":     ["site:gov", "site:gov.sa", "site:gov.ae", "site:gov.eg", "site:edu", "site:edu.sa", "site:edu.eg"],
+    "all":     []
 }
 
-function addBotPreview(fullText, sources){
-  const preview = makePreview(fullText, 420); // طول مناسب للفقاعة
-  const box=document.createElement('div');
-  box.className='msg bot';
-  box.innerHTML = `<div>${mdLite(escapeHTML(preview))}</div>`;
-  const actions=document.createElement('div');
-  actions.className='actions';
-  const moreBtn=document.createElement('button');
-  moreBtn.className='btn-sm';
-  moreBtn.textContent='عرض التفاصيل';
-  moreBtn.onclick=()=>openDrawer(fullText, sources);
-  actions.appendChild(moreBtn);
+def deep_search(q: str, mode: str = "all", per_site: int = 4, max_total: int = 30, prefer_arabic: bool=False):
+    domains = PLATFORM_FILTERS.get(mode, [])
+    # بحث عام قوي (بدون فلاتر)
+    if not domains:
+        hits = web_search_basic(q, limit=20, prefer_arabic=prefer_arabic)
+        seen, out = set(), []
+        for h in hits:
+            link = h.get("link")
+            if not link or link in seen:
+                continue
+            seen.add(link); out.append(h)
+        for h in out:
+            h["summary"] = summarize_text(h.get("snippet","") or "", 2)
+        return out[:max_total]
 
-  // لو فيه مصادر، زر سريع لفتح أول مصدر
-  if(sources && sources.length){
-    const openFirst=document.createElement('a');
-    openFirst.className='btn-sm';
-    openFirst.textContent='فتح أول مصدر';
-    openFirst.href=sources[0].link;
-    openFirst.target='_blank';
-    actions.appendChild(openFirst);
-  }
-  box.appendChild(actions);
-  chat.appendChild(box);
-  window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
-}
+    # مع فلاتر منصّات
+    results, seen = [], set()
+    try:
+        with DDGS() as ddgs:
+            for dom in domains:
+                query = f"{q} {dom}"
+                for r in ddgs.text(query, region="xa-ar", safesearch="off", max_results=per_site):
+                    link = r.get("href","")
+                    if not link or link in seen:
+                        continue
+                    seen.add(link)
+                    results.append({
+                        "title": r.get("title",""),
+                        "link": link,
+                        "snippet": r.get("body",""),
+                        "domain": dom.replace("site:","")
+                    })
+                    if len(results) >= max_total:
+                        break
+                if len(results) >= max_total:
+                    break
+    except Exception:
+        pass
+    for r in results:
+        r["summary"] = summarize_text(r.get("snippet","") or "", 2)
+    return results
 
-function makePreview(s, max=420){
-  s = (s||'').trim();
-  if(s.length<=max) return s;
-  // قص ذكي عند حدود الجملة
-  const cut = s.slice(0, max);
-  const lastDot = Math.max(cut.lastIndexOf('。'), cut.lastIndexOf('؟'), cut.lastIndexOf('?'), cut.lastIndexOf('،'), cut.lastIndexOf('.'));
-  return (lastDot>120 ? cut.slice(0,lastDot+1) : cut) + ' …';
-}
 
-function addNote(text){
-  const div=document.createElement('div');
-  div.className='msg bot';
-  div.textContent=text;
-  chat.appendChild(div);
-  window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
-  return div;
-}
+# =========================
+# 6) PDF/صورة + تنزيل
+# =========================
+def extract_pdf_text(path: str) -> str:
+    try:
+        reader = PdfReader(path)
+        return "\n".join((p.extract_text() or "") for p in reader.pages)
+    except Exception:
+        return ""
 
-function showSourcesFull(results){
-  if(!results||!results.length) return '<div class="muted">لا توجد مصادر.</div>';
-  return results.map(s=>{
-    const isPDF = /\.pdf(\?|$)/i.test(s.link||'');
-    const name  = (s.title || s.link || 'مصدر').slice(0,120);
-    return `
-      <div class="card">
-        <div class="chips"><span class="chip">${escapeHTML((s.domain||'').replace(/^www\./,''))}</span></div>
-        <b>${escapeHTML(name)}</b><br>
-        <a href="${s.link}" target="_blank">${s.link}</a>
-        <div class="muted" style="margin-top:6px">${escapeHTML(s.summary||s.snippet||'')}</div>
-        <div class="actions">
-          <a class="btn-sm" target="_blank" href="${s.link}">فتح</a>
-          <button class="btn-sm" onclick="downloadFile('${s.link.replace(/'/g,'\\\'')}', '${isPDF?'document.pdf':'file'}')">تنزيل</button>
-        </div>
-      </div>`;
-  }).join('');
-}
+@app.post("/upload/pdf")
+async def upload_pdf(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(400, "ارفع ملف PDF فقط.")
+    safe = ensure_safe_filename(file.filename)
+    dest = os.path.join(UPLOADS_DIR, safe)
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+    text = extract_pdf_text(dest)
+    if text.strip():
+        txt = safe.rsplit(".",1)[0] + ".txt"
+        with open(os.path.join(DATA_DIR, txt), "w", encoding="utf-8") as f:
+            f.write(text)
+        n = build_index()
+    else:
+        n = len(BM25_DOCS)
+    return {"ok": True, "file_url": f"/files/uploads/{safe}", "indexed_docs": n}
 
-/* ---------- Drawer (تفاصيل) ---------- */
-const drawer = document.getElementById('drawer');
-const detailAnswer = document.getElementById('detail-answer');
-const detailSources = document.getElementById('detail-sources');
-
-function openDrawer(fullText, sources){
-  detailAnswer.innerHTML = mdLite(escapeHTML(fullText || ''));
-  detailSources.innerHTML = sources ? ('<h4>المصادر</h4>' + showSourcesFull(sources)) : '';
-  drawer.classList.add('open');
-}
-function closeDrawer(){ drawer.classList.remove('open'); }
-
-/* ---------- Ask ---------- */
-async function send(){
-  const q=(qbox.value||'').trim();
-  if(!q) return;
-  addMine(q); qbox.value=''; qbox.focus();
-  const wait=addNote('⏳ جاري المعالجة…');
-
-  btn.disabled=true;
-  try{
-    const res=await fetch('/ask?q='+encodeURIComponent(q));
-    const j=await res.json();
-    wait.remove();
-
-    // الخادم يُرجع: {type:"chat", answer:"…", sources:[…]} أو math/web/rag
-    if(j.type==='math' && j.answer){
-      addBotPreview(j.answer); // هي نفسها ملخص محسّن
-    }else if(j.answer){
-      addBotPreview(j.answer, j.sources||j.results||j.hits||[]);
-    }else if(j.msg){
-      addBotPreview(j.msg);
-    }else{
-      addBotPreview('لم أفهم الرد.');
+@app.post("/upload/image")
+async def upload_image(request: Request, file: UploadFile = File(...)):
+    ext = os.path.splitext(file.filename or "")[1].lower()
+    if ext not in [".jpg",".jpeg",".png",".webp",".bmp"]:
+        raise HTTPException(400, "ارفع صورة بصيغة jpg/png/webp/bmp.")
+    safe = ensure_safe_filename(file.filename or f"img_{int(time.time())}{ext}")
+    dest = os.path.join(UPLOADS_DIR, safe)
+    with open(dest, "wb") as out:
+        shutil.copyfileobj(file.file, out)
+    try:
+        Image.open(dest).verify()
+    except Exception:
+        os.remove(dest); raise HTTPException(400, "الملف ليس صورة صالحة.")
+    base = str(request.base_url).rstrip("/")
+    url  = f"{base}/files/uploads/{safe}"
+    return {
+        "ok": True, "image_url": url,
+        "reverse": {
+            "google": f"https://www.google.com/searchbyimage?image_url={url}",
+            "bing":   f"https://www.bing.com/images/search?q=imgurl:{url}&view=detailv2&iss=sbi",
+            "yandex": f"https://yandex.com/images/search?rpt=imageview&url={url}",
+            "tineye": f"https://tineye.com/search?url={url}"
+        }
     }
-  }catch(e){
-    wait.remove();
-    addBotPreview('⚠️ حدث خطأ بالاتصال.');
-  }finally{
-    btn.disabled=false;
-  }
-}
 
-/* ---------- Upload PDF ---------- */
-async function uploadPDF(){
-  const inp=document.getElementById('pdf');
-  const box=document.getElementById('pdf-result');
-  if(!inp.files.length){ box.textContent='اختر ملف PDF أولًا.'; return; }
-  const fd=new FormData(); fd.append('file', inp.files[0]);
-  box.textContent='⏳ جاري الرفع والفهرسة...';
-  try{
-    const res=await fetch('/upload/pdf',{method:'POST',body:fd});
-    const j=await res.json();
-    box.innerHTML='<b>تم الرفع ✔️</b><br>الرابط: <a target="_blank" href="'+j.file_url+'">'+j.file_url+
-      '</a> <button class="btn-sm" onclick="downloadFile(\''+j.file_url+'\', \'document.pdf\')">تنزيل</button>'+
-      '<br>عدد المستندات في الفهرس: '+j.indexed_docs;
-  }catch(e){
-    box.textContent='فشل الرفع.';
-  }
-}
+@app.get("/files_list")
+def files_list():
+    items = []
+    for root, _, files in os.walk(FILES_DIR):
+        for fn in files:
+            path = os.path.join(root, fn)
+            rel  = os.path.relpath(path, FILES_DIR).replace("\\","/")
+            items.append("/files/" + rel)
+    items.sort()
+    return {"count": len(items), "files": items}
 
-/* ---------- Upload Image + reverse search ---------- */
-async function uploadImage(){
-  const inp=document.getElementById('img');
-  const box=document.getElementById('img-result');
-  if(!inp.files.length){ box.textContent='اختر صورة أولًا.'; return; }
-  const fd=new FormData(); fd.append('file', inp.files[0]);
-  box.textContent='⏳ جاري الرفع...';
-  try{
-    const res=await fetch('/upload/image',{method:'POST',body:fd});
-    const j=await res.json();
-    const links = [
-      {title:'Google Images', link:j.reverse.google, snippet:'بحث عكسي على Google'},
-      {title:'Bing',          link:j.reverse.bing,   snippet:'بحث عكسي على Bing'},
-      {title:'Yandex',        link:j.reverse.yandex, snippet:'بحث عكسي على Yandex'},
-      {title:'TinEye',        link:j.reverse.tineye, snippet:'بحث عكسي على TinEye'}
-    ];
-    box.innerHTML = `
-      <div>تم الرفع ✔️ — <a target="_blank" href="${j.image_url}">فتح الصورة</a>
-      <button class="btn-sm" onclick="downloadFile('${j.image_url}', 'image')">تنزيل</button></div>
-      <div class="card">${showSourcesFull(links)}</div>`;
-  }catch(e){
-    box.textContent='فشل الرفع.';
-  }
-}
+@app.get("/download")
+async def download(url: str = Query(..., description="URL للتنزيل")):
+    headers = {"User-Agent": "Mozilla/5.0 (BassamBot; +https://render.com)"}
+    timeout = httpx.Timeout(30.0, connect=10.0)
+    async with httpx.AsyncClient(headers=headers, timeout=timeout, follow_redirects=True) as client:
+        r = await client.get(url)
+    ct = (r.headers.get("content-type") or "application/octet-stream").split(";")[0]
+    return Response(content=r.content, media_type=ct)
 
-/* ---------- Backend proxy download ---------- */
-async function downloadFile(url, suggestedName="file"){
-  try{
-    const r = await fetch('/download?url=' + encodeURIComponent(url));
-    if(!r.ok) throw new Error('DL failed');
-    const blob = await r.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = suggestedName;
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(a.href);
-  }catch(e){ alert('فشل التنزيل'); }
-}
 
-/* ---------- Enter key on chat ---------- */
-qbox.addEventListener('keydown', e=>{ if(e.key==='Enter'){ send(); } });
-</script>
-</body>
-</html>
+# =========================
+# 7) واجهات الدردشة/البحث
+# =========================
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    if templates and os.path.exists(os.path.join("templates","index.html")):
+        return templates.TemplateResponse("index.html", {"request": request, "version": "v4.1"})
+    return HTMLResponse("<h3>بسّام يعمل. ارفع templates/index.html لاستخدام الواجهة.</h3>")
+
+@app.get("/healthz")
+def healthz():
+    return {"status":"ok","version":"4.1","docs_indexed":len(BM25_DOCS)}
+
+@app.get("/ask")
+def ask(q: str = Query(..., description="سؤالك"), prefer_ar: bool = Query(False, description="تفضيل العربية")):
+    """تدفق: RAG → ويب → رياضيات → لا نتائج."""
+    log_usage()
+    q = (q or "").strip()
+    if not q:
+        return {"type":"chat","answer":"أدخل سؤالك."}
+
+    # رياضيات؟
+    if any(t in q for t in ["sin","cos","tan","log","exp","^"]) or ("مشتقة" in q) or ("تكامل" in q):
+        math = solve_math(q)
+        return {"type":"math", "result": math, "answer": "🧮 هذه تفاصيل الحساب."}
+
+    # RAG محلي
+    rag = rag_bm25(q, k=3)
+    if rag:
+        summary = summarize_text(rag[0]["snippet"], 3)
+        return answer_bubble(summary)
+
+    # ويب
+    hits = web_search_basic(q, limit=10, prefer_arabic=prefer_ar)
+    if hits:
+        tops = hits[:5]
+        bullet = "\n".join(f"- {h.get('title')}: {h.get('snippet')}" for h in tops)
+        # إجابة مختصرة مباشرة
+        brief = summarize_text(bullet, 3)
+        return answer_bubble(brief, hits[:10])
+
+    return answer_bubble("لم أجد نتائج حول سؤالك. جرّب صياغة أدق أو أضف كلمات مفتاحية.")
+
+@app.get("/search")
+def search_endpoint(q: str = Query(...), mode: str = "all", per_site: int = 4, max_total: int = 30, prefer_ar: bool=False):
+    q = (q or "").strip()
+    if not q:
+        return {"type":"chat", "answer":"أدخل عبارة البحث."}
+    results = deep_search(q, mode=mode, per_site=per_site, max_total=max_total, prefer_arabic=prefer_ar)
+    if results:
+        brief = summarize_text("\n".join("- " + (r.get("title") or "") for r in results[:8]), 3)
+        return {"type":"chat", "answer": brief, "sources": results}
+    return {"type":"chat", "answer":"لم أجد نتائج واضحة، جرّب وصفًا أدق."}
+
+@app.get("/search/advanced")
+def search_advanced(q: str = Query(...), timelimit: str = "", social: bool=False, market: bool=False,
+                    gov: bool=False, edu: bool=False, video: bool=False, deep: bool=False, prefer_ar: bool=False):
+    mode = "all"
+    if social: mode = "social"
+    elif market: mode = "markets"
+    elif gov or edu: mode = "gov"
+    elif video: mode = "video"
+    results = deep_search(q, mode=mode, per_site=6 if deep else 4, max_total=40 if deep else 25, prefer_arabic=prefer_ar)
+    brief = summarize_text("\n".join("- "+(r.get("title") or "") for r in results[:10]), 3) if results else "لا نتائج."
+    return {"count": len(results), "results": results, "answer": brief}
+
+@app.post("/feedback")
+def feedback(payload: Dict[str,Any] = Body(...)):
+    q = (payload.get("question") or "").strip()
+    a = (payload.get("answer") or "").strip()
+    tags = payload.get("tags") or []
+    if not q or not a: 
+        return {"ok":False,"error":"question و answer مطلوبة"}
+    with open(LEARN_PATH, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"time":int(time.time()),"question":q,"answer":a,"tags":tags}, ensure_ascii=False)+"\n")
+    n = build_index()
+    return {"ok":True,"indexed_docs":n}
+
+@app.post("/train")
+def train(): 
+    return {"ok":True, "indexed_docs": build_index()}
+
+@app.get("/stats")
+def stats():
+    try:
+        with open(USAGE_PATH, "r", encoding="utf-8") as f: 
+            return json.load(f)
+    except: 
+        return {"requests":0}
+
+
+# =========================
+# 8) تشغيل محلّي
+# =========================
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
