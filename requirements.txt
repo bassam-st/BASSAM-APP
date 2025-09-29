@@ -1,14 +1,11 @@
 fastapi
 uvicorn
 jinja2
+httpx
 beautifulsoup4
 readability-lxml
-duckduckgo-search
-wikipedia
+duckduckgo_search
 sumy==0.11.0
 sympy==1.12
 numpy
-rapidfuzz
-rank-bm25
 python-multipart
-pdfminer.six
