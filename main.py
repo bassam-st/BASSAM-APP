@@ -1,5 +1,6 @@
-# main.py — Bassam الذكي v4.0
-# Chat + RAG + Deep Web + Math + PDF/Image + Download + (AI Rewriter)
+# main.py — Bassam الذكي v4.1
+# Chat + RAG + Deep Web + Math + PDF/Image + Download
+# (يعمل بلا نماذج ثقيلة — جاهز للنشر على Render)
 
 from fastapi import FastAPI, Request, Query, Body, UploadFile, File, HTTPException
 from fastapi.responses import HTMLResponse, Response
@@ -9,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import os, json, time, re, shutil
 from typing import List, Dict, Any
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 
 # -------- Web / Text --------
 from duckduckgo_search import DDGS
@@ -37,39 +38,11 @@ from PIL import Image
 # -------- HTTP client (download/proxy) --------
 import httpx
 
-# -------- Optional LLM Rewriter (Transformers) --------
-CHATBOT = None
-AI_ENABLED = os.getenv("AI_ENABLE", "1") == "1"  # يمكنك تعطيله بوضع 0
-if AI_ENABLED:
-    try:
-        from transformers import pipeline
-        # نموذج صغير أولاً (أخف على الخوادم المجانية)
-        MODEL_CANDIDATES = [
-            "Qwen/Qwen2.5-0.5B-Instruct",        # عربي/إنجليزي خفيف
-            "TinyLlama/TinyLlama-1.1B-Chat-v1.0" # بديل صغير
-        ]
-        exc = None
-        for m in MODEL_CANDIDATES:
-            try:
-                CHATBOT = pipeline(
-                    "text-generation",
-                    model=m,
-                    device_map="auto",
-                    torch_dtype="auto"
-                )
-                break
-            except Exception as e:
-                exc = e
-        if CHATBOT is None:
-            print("[AI] فشل تحميل النماذج الصغيرة — سيعمل بدون إعادة صياغة. آخر خطأ:", exc)
-    except Exception as e:
-        print("[AI] transformers غير متوفرة — سيعمل بدون إعادة صياغة:", e)
-
 
 # =========================
 # 1) تهيئة التطبيق والمجلدات
 # =========================
-app = FastAPI(title="Bassam الذكي 🤖", version="4.0")
+app = FastAPI(title="Bassam الذكي 🤖", version="4.1")
 
 DATA_DIR     = "data"
 NOTES_DIR    = os.path.join(DATA_DIR, "notes")
@@ -137,27 +110,6 @@ def answer_bubble(text: str, sources: List[Dict[str, Any]] = None) -> Dict[str, 
             out.append(s)
         resp["sources"] = out
     return resp
-
-def ai_rewrite(prompt: str, max_new_tokens: int = 220) -> str:
-    """إعادة صياغة ذكية عبر النموذج — تُرجع النص الأصلي إذا لم يتوفر النموذج."""
-    if CHATBOT is None:
-        return prompt.strip()
-    try:
-        # صياغة عربية لطيفة ومباشرة
-        full_prompt = (
-            "أعد صياغة الإجابة التالية بالعربية الفصحى بشكل واضح ومختصر ومفيد، "
-            "مع إبقاء النقاط المهمة والنتائج النهائية:\n\n"
-            f"{prompt.strip()}\n\n"
-            "— نهاية النص —\n"
-        )
-        out = CHATBOT(full_prompt, max_new_tokens=max_new_tokens, do_sample=False)
-        text = out[0].get("generated_text", "").strip()
-        # إزالة أي تكرار للبروُمبت إن وُجد
-        if len(text) > len(full_prompt):
-            text = text[len(full_prompt):].strip()
-        return text or prompt.strip()
-    except Exception:
-        return prompt.strip()
 
 
 # =========================
@@ -231,67 +183,141 @@ def solve_math(expr: str):
 
 
 # =========================
-# 5) بحث الويب (عام/عميق)
+# 5) بحث ويب مُعزّز (عنيد) + بحث منصّاتي
 # =========================
-def web_search_basic(q: str, limit: int = 8):
+AR_DIGITS_MAP = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+
+def normalize_ar(text: str) -> str:
+    """تطبيع عربي بسيط (حذف تشكيل/إطالة/توحيد همزات/أرقام عربية)."""
+    t = (text or "").strip()
+    t = re.sub(r"[\u064B-\u0652\u0640]", "", t)
+    t = t.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ى","ي").replace("ؤ","و").replace("ئ","ي")
+    t = t.translate(AR_DIGITS_MAP)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+QUERY_SYNONYMS = [
+    ("ابحث", "ابحث عن"),
+    ("سعر", "ثمن"),
+    ("تعريف", "ما هو"),
+]
+
+def expand_queries(q: str) -> list[str]:
+    base = [q]
+    for a, b in QUERY_SYNONYMS:
+        if a in q: base.append(q.replace(a, b))
+    out = []
+    for s in base:
+        out.append(s)
+        out.append(s + " ")
+    return list(dict.fromkeys(out))
+
+def _ddg_text(query: str, limit: int = 8, timelimit: str | None = None):
     try:
         with DDGS() as ddgs:
-            out = []
-            for r in ddgs.text(q, region="xa-ar", safesearch="off", max_results=limit):
-                out.append({
-                    "title": r.get("title",""),
-                    "link":  r.get("href",""),
-                    "snippet": r.get("body","")
-                })
-            return out
+            return list(ddgs.text(
+                query, region="xa-ar", safesearch="off",
+                max_results=limit, timelimit=timelimit
+            )) or []
     except Exception:
         return []
 
+def _duckduckgo_html_scrape(q: str, limit: int = 10):
+    try:
+        url = "https://duckduckgo.com/html/?q=" + quote(q, safe="")
+        headers = {"User-Agent": "Mozilla/5.0 (BassamBot)"}
+        with httpx.Client(headers=headers, follow_redirects=True, timeout=20.0) as c:
+            r = c.get(url)
+        soup = BeautifulSoup(r.text, "html.parser")
+        items = []
+        for a in soup.select(".result__a"):
+            link = a.get("href")
+            title = a.get_text(" ", strip=True)
+            par = a.find_parent(class_="result")
+            snippet = ""
+            if par:
+                sn = par.select_one(".result__snippet")
+                if sn: snippet = sn.get_text(" ", strip=True)
+            if link and title:
+                items.append({"title": title, "href": link, "body": snippet})
+            if len(items) >= limit:
+                break
+        return items
+    except Exception:
+        return []
+
+def web_search_strong(q: str, limit: int = 10) -> list[dict]:
+    """1) ddg بصيغ متعددة + timelimit  2) fallback كشط HTML  3) تلخيص مقتطفات"""
+    qn = normalize_ar(q)
+    variants = expand_queries(qn)
+    hits: list[dict] = []
+    seen = set()
+
+    for v in variants:
+        for t in (None, "w", "m"):  # أسبوع، شهر
+            res = _ddg_text(v, limit=min(8, limit), timelimit=t)
+            for r in res:
+                link = r.get("href") or r.get("link")
+                if not link or link in seen: 
+                    continue
+                seen.add(link)
+                hits.append({
+                    "title": r.get("title",""),
+                    "link":  link,
+                    "snippet": r.get("body","")
+                })
+                if len(hits) >= limit:
+                    break
+            if len(hits) >= limit: break
+        if len(hits) >= limit: break
+
+    if len(hits) < max(3, limit//2):
+        scraped = _duckduckgo_html_scrape(qn, limit=limit)
+        for r in scraped:
+            link = r.get("href")
+            if not link or link in seen: 
+                continue
+            seen.add(link)
+            hits.append({
+                "title": r.get("title",""),
+                "link":  link,
+                "snippet": r.get("body","")
+            })
+
+    for h in hits:
+        h["summary"] = summarize_text(h.get("snippet",""), 2)
+    return hits[:limit]
+
 PLATFORM_FILTERS = {
-    "social":  ["site:x.com", "site:twitter.com", "site:facebook.com", "site:instagram.com",
-                "site:linkedin.com", "site:tiktok.com", "site:reddit.com", "site:snapchat.com"],
-    "video":   ["site:youtube.com", "site:vimeo.com", "site:tiktok.com", "site:dailymotion.com"],
-    "markets": ["site:alibaba.com", "site:amazon.com", "site:aliexpress.com",
-                "site:etsy.com", "site:ebay.com", "site:noon.com"],
-    "gov":     ["site:gov", "site:gov.sa", "site:gov.ae", "site:gov.eg", "site:edu", "site:edu.sa", "site:edu.eg"],
+    "social":  ["site:x.com","site:twitter.com","site:facebook.com","site:instagram.com",
+                "site:linkedin.com","site:tiktok.com","site:reddit.com","site:snapchat.com"],
+    "video":   ["site:youtube.com","site:vimeo.com","site:tiktok.com","site:dailymotion.com"],
+    "markets": ["site:alibaba.com","site:amazon.com","site:aliexpress.com",
+                "site:etsy.com","site:ebay.com","site:noon.com"],
+    "gov":     ["site:gov","site:gov.sa","site:gov.ae","site:gov.eg","site:edu","site:edu.sa","site:edu.eg"],
     "all":     []
 }
 
 def deep_search(q: str, mode: str = "all", per_site: int = 4, max_total: int = 30):
     domains = PLATFORM_FILTERS.get(mode, [])
     if not domains:
-        hits = web_search_basic(q, limit=20)
-        seen, out = set(), []
-        for h in hits:
-            link = h.get("link")
-            if not link or link in seen: continue
-            seen.add(link); out.append(h)
-        for h in out:
-            h["summary"] = summarize_text(h.get("snippet",""), 2)
-        return out[:max_total]
+        return web_search_strong(q, limit=max_total)
 
-    results, seen = [], set()
-    try:
-        with DDGS() as ddgs:
-            for dom in domains:
-                query = f"{q} {dom}"
-                for r in ddgs.text(query, region="xa-ar", safesearch="off", max_results=per_site):
-                    link = r.get("href","")
-                    if not link or link in seen: continue
-                    seen.add(link)
-                    results.append({
-                        "title": r.get("title",""),
-                        "link": link,
-                        "snippet": r.get("body",""),
-                        "domain": dom.replace("site:","")
-                    })
-                    if len(results) >= max_total: break
-                if len(results) >= max_total: break
-    except Exception:
-        pass
-    for r in results:
-        r["summary"] = summarize_text(r.get("snippet",""), 2)
-    return results
+    out, seen = [], set()
+    for dom in domains:
+        res = web_search_strong(f"{q} {dom}", limit=per_site)
+        for r in res:
+            link = r.get("link")
+            if not link or link in seen: 
+                continue
+            seen.add(link)
+            r["domain"] = dom.replace("site:","")
+            out.append(r)
+            if len(out) >= max_total:
+                break
+        if len(out) >= max_total:
+            break
+    return out
 
 
 # =========================
@@ -374,44 +400,41 @@ async def download(url: str = Query(..., description="URL للتنزيل")):
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     if templates and os.path.exists(os.path.join("templates","index.html")):
-        return templates.TemplateResponse("index.html", {"request": request, "version": "4.0"})
+        return templates.TemplateResponse("index.html", {"request": request, "version": "4.1"})
     return HTMLResponse("<h3>بسّام يعمل. ارفع templates/index.html لاستخدام الواجهة.</h3>")
 
 @app.get("/healthz")
 def healthz():
-    return {"status":"ok","version":"4.0","docs_indexed":len(BM25_DOCS),"ai_enabled": bool(CHATBOT)}
+    return {"status":"ok","version":"4.1","docs_indexed":len(BM25_DOCS)}
 
 @app.get("/ask")
 def ask(q: str = Query(..., description="سؤالك")):
     log_usage()
+    q = (q or "").strip()
     if not q: 
         return {"type":"chat","answer":"أدخل سؤالك."}
 
-    # 1) رياضيات؟
+    # (A) رياضيات؟
     if any(t in q for t in ["sin","cos","tan","log","exp","^"]) or ("مشتقة" in q) or ("تكامل" in q):
         math = solve_math(q)
-        text = json.dumps(math, ensure_ascii=False, indent=2)
-        pretty = ai_rewrite("نتيجة حسابية:\n" + text)
-        return {"type":"math", "result": math, "answer": pretty}
+        return {"type":"math", "result": math, "answer": "تم الحساب. انظر التفاصيل."}
 
-    # 2) RAG محلي
+    # (B) RAG محلي أولًا
     rag = rag_bm25(q, k=3)
     if rag:
         summary = summarize_text(rag[0]["snippet"], 3)
-        pretty = ai_rewrite(summary)
-        return answer_bubble(pretty)
+        return {"type":"chat","answer":summary, "sources":[
+            {"title": os.path.basename(r["file"]), "link":"", "snippet": r["snippet"]} for r in rag
+        ]}
 
-    # 3) ويب عام
-    hits = web_search_basic(q, limit=8)
+    # (C) إن لم تجد RAG → ويب معزّز (عنيد)
+    hits = web_search_strong(q, limit=10)
     if hits:
-        # اصنع نصًا موجزًا ثم أعد صياغته بالذكاء
-        tops = hits[:5]
-        bullet = "\n".join(f"- {h.get('title')}: {h.get('snippet')}" for h in tops)
-        pretty = ai_rewrite("لخّص بإجابة مباشرة بناءً على هذه النقاط:\n" + bullet)
-        resp = answer_bubble(pretty, hits[:10])
-        return resp
+        bullet = "\n".join(f"- {h.get('title')}: {h.get('summary') or h.get('snippet','')}" for h in hits[:6])
+        final  = "ملخص مختصر لأفضل النتائج:\n" + bullet
+        return {"type":"chat","answer":final, "sources": hits}
 
-    return answer_bubble(ai_rewrite("لم أجد نتائج حول سؤالك."))
+    return {"type":"chat","answer": "لم أجد نتائج حول سؤالك. جرّب صياغة أدق أو حمّل مرجع PDF وسيتم فهرسته."}
 
 @app.get("/search")
 def search_endpoint(q: str = Query(...), mode: str = "all", per_site: int = 4, max_total: int = 30):
@@ -420,9 +443,8 @@ def search_endpoint(q: str = Query(...), mode: str = "all", per_site: int = 4, m
         return {"type":"chat", "answer":"أدخل عبارة البحث."}
     results = deep_search(q, mode=mode, per_site=per_site, max_total=max_total)
     if results:
-        pretty = ai_rewrite("لخّص أفضل النتائج التالية بنقاط واضحة بالعربية:\n" +
-                            "\n".join("- " + (r.get("title") or "") for r in results[:8]))
-        return {"type":"chat", "answer":"\n"+pretty, "sources": results}
+        summary = "أفضل النتائج (مختصر):\n" + "\n".join("- " + (r.get("title") or "") for r in results[:8])
+        return {"type":"chat", "answer": summary, "sources": results}
     return {"type":"chat", "answer":"لم أجد نتائج واضحة، جرّب وصفًا أدق."}
 
 @app.get("/search/advanced")
@@ -434,8 +456,8 @@ def search_advanced(q: str = Query(...), timelimit: str = "", social: bool=False
     elif gov or edu: mode = "gov"
     elif video: mode = "video"
     results = deep_search(q, mode=mode, per_site=6 if deep else 4, max_total=40 if deep else 25)
-    pretty = ai_rewrite("لخّص النتائج التالية:\n" + "\n".join("- "+(r.get("title") or "") for r in results[:10])) if results else "لا نتائج."
-    return {"count": len(results), "results": results, "answer": pretty}
+    summary = "ملخص النتائج:\n" + "\n".join("- "+(r.get("title") or "") for r in results[:10]) if results else "لا نتائج."
+    return {"count": len(results), "results": results, "answer": summary}
 
 @app.post("/feedback")
 def feedback(payload: Dict[str,Any] = Body(...)):
