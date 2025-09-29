@@ -12,4 +12,3 @@ rapidfuzz
 rank-bm25
 python-multipart
 pdfminer.six
-ابن زوجي مساج
