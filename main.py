@@ -432,3 +432,150 @@ def stats():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    # === deep_search (RAG + Web) مع إبقاء بقية التطبيق كما هو ===
+from fastapi import APIRouter
+import os, re, math, time, json
+import httpx
+from duckduckgo_search import DDGS
+from readability import Document
+from bs4 import BeautifulSoup
+from diskcache import Cache
+
+# RAG الخفيف (بدون نماذج ثقيلة)
+from rank_bm25 import BM25Okapi
+from rapidfuzz import fuzz
+from pathlib import Path
+
+# تلخيص خفيف
+from sumy.parsers.plaintext import PlainTextParser
+from sumy.summarizers.text_rank import TextRankSummarizer
+from sumy.nlp.tokenizers import Tokenizer
+
+router = APIRouter()
+CACHE = Cache("cache")
+UPLOAD_DIR = "uploads"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
+
+def _split_chunks(text: str, size=800, overlap=120):
+    text = re.sub(r"\s+", " ", text).strip()
+    chunks, i = [], 0
+    while i < len(text):
+        chunks.append(text[i:i+size])
+        i += size - overlap
+    return chunks
+
+def _load_local_docs(upload_dir=UPLOAD_DIR):
+    """يقرأ txt/md/pdf بشكل مبسط"""
+    docs = []
+    for p in Path(upload_dir).glob("**/*"):
+        if p.is_file() and p.suffix.lower() in [".txt", ".md", ".pdf"]:
+            try:
+                if p.suffix.lower() == ".pdf":
+                    from pypdf import PdfReader
+                    reader = PdfReader(str(p))
+                    txt = " ".join(page.extract_text() or "" for page in reader.pages)
+                else:
+                    txt = p.read_text(encoding="utf-8", errors="ignore")
+                if txt.strip():
+                    for ch in _split_chunks(txt):
+                        docs.append({"source": str(p.name), "chunk": ch})
+            except Exception:
+                continue
+    return docs
+
+def _rag_search(query: str, k=6):
+    """BM25 + فلتر تشابه سريع"""
+    docs = _load_local_docs()
+    if not docs:
+        return []
+    corpus = [d["chunk"] for d in docs]
+    tokenized = [c.lower().split() for c in corpus]
+    bm25 = BM25Okapi(tokenized)
+    scores = bm25.get_scores(query.lower().split())
+    ranked = sorted(
+        [{"score": float(s), **docs[i]} for i, s in enumerate(scores)],
+        key=lambda x: x["score"], reverse=True
+    )[:k*2]
+    # فلترة بالتشابه الدلالي السريع
+    filtered = sorted(
+        ranked,
+        key=lambda x: fuzz.partial_ratio(query, x["chunk"]),
+        reverse=True
+    )[:k]
+    return filtered
+
+async def _fetch_html(session: httpx.AsyncClient, url: str) -> str:
+    try:
+        r = await session.get(url, timeout=12)
+        r.raise_for_status()
+        html = r.text
+        try:
+            # Readability للحصول على المتن
+            doc = Document(html)
+            article_html = doc.summary()
+            soup = BeautifulSoup(article_html, "html.parser")
+            text = soup.get_text(" ", strip=True)
+        except Exception:
+            soup = BeautifulSoup(html, "html.parser")
+            text = soup.get_text(" ", strip=True)
+        return text[:20000]
+    except Exception:
+        return ""
+
+def _summarize_ar(text: str, n_sent=4):
+    if not text.strip():
+        return ""
+    lang = "arabic" if ARABIC_RE.search(text) else "english"
+    parser = PlainTextParser.from_string(text, Tokenizer(lang))
+    summ = TextRankSummarizer()
+    out = [str(s) for s in summ(parser.document, n_sent)]
+    return " ".join(out)
+
+@router.get("/deep_search")
+async def deep_search(q: str, arabic: bool = True, max_web: int = 8):
+    """
+    بحث موحد:
+      1) RAG من ملفاتك (uploads/)
+      2) ثم الويب (DuckDuckGo)
+      3) دمج وتلخيص
+    """
+    # 1) RAG
+    rag_hits = _rag_search(q, k=6)
+
+    # 2) Web
+    web_list = []
+    region = "xa-ar" if arabic else "us-en"
+    with DDGS() as ddgs:
+        for r in ddgs.text(q, region=region, safesearch="Off", max_results=max_web):
+            web_list.append({"title": r.get("title"), "href": r.get("href"), "snippet": r.get("body")})
+
+    # جلب متن الصفحات
+    web_texts = []
+    async with httpx.AsyncClient(follow_redirects=True) as session:
+        for item in web_list[:max_web]:
+            if not item.get("href"):
+                continue
+            txt = await _fetch_html(session, item["href"])
+            if txt:
+                web_texts.append({"url": item["href"], "text": txt})
+
+    # 3) دمج و تلخيص
+    rag_text = "\n\n".join([f"[{h['source']}] {h['chunk']}" for h in rag_hits])
+    web_text = "\n\n".join([t["text"] for t in web_texts])
+    combined = (rag_text + "\n\n" + web_text)[:120000]
+
+    summary = _summarize_ar(combined, n_sent=6)
+
+    return {
+        "query": q,
+        "rag_used": len(rag_hits),
+        "web_used": len(web_texts),
+        "rag_hits": rag_hits,         # مقاطع من ملفاتك مع اسم الملف
+        "web_results": web_list,      # روابط وعناوين
+        "summary": summary            # خلاصة موحدة بالعربية
+    }
+
+# اربطه بتطبيقك الرئيسي من دون تغيير أي شيء آخر:
+# app.include_router(router)
