@@ -1,0 +1,22 @@
+{
+  "capital": {
+    "triggers": ["عاصمة", "عاصمه", "capital", "ما هي عاصمة", "ماهي عاصمة", "capital of"],
+    "extract": ["عاصمة", "عاصمه", "capital", "capital of"]
+  },
+  "product": {
+    "triggers": ["اين", "وين", "فين", "احصل", "اشتري", "شراء", "سعر", "قطعة", "قطعه", "منتج", "موديل", "افضل سعر", "اعثر", "وين القى"],
+    "hints": ["site:alibaba.com", "site:amazon.com", "site:aliexpress.com", "site:ebay.com", "site:noon.com", "site:temu.com"]
+  },
+  "social": {
+    "triggers": ["شخص", "حساب", "بروفايل", "سوشال", "سوشيال", "مواقع التواصل", "تويتر", "فيسبوك", "انستقرام", "يوتيوب", "لينكدإن", "تيك توك", "سناب"],
+    "hints": ["site:x.com", "site:twitter.com", "site:facebook.com", "site:instagram.com", "site:youtube.com", "site:linkedin.com", "site:tiktok.com", "site:snapchat.com", "site:telegram.me", "site:reddit.com"]
+  },
+  "howto": {
+    "triggers": ["كيف", "شلون", "ازاي", "علمني", "خطوة", "خطوه", "how to", "طريقة", "اريد ان"],
+    "style": "steps"
+  },
+  "general": {
+    "triggers": [],
+    "fallback": true
+  }
+}
