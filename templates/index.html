@@ -1,182 +1,197 @@
 <!doctype html>
 <html lang="ar" dir="rtl">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>بسّام الذكي v3.5</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>بسّام الذكي v3.6</title>
 <style>
   :root{
-    --bg:#0b1020; --panel:#141b2e; --muted:#9fb4ff; --text:#e7ecff; --brand:#4f6ef7; --border:#223066;
+    --bg:#0b1020;--panel:#11162d;--bubble:#141b2e;--bubble-user:#1e2a50;
+    --border:#223066;--text:#e7ecff;--accent:#4b6bff;--muted:#9fb3ff;
   }
-  *{box-sizing:border-box}
-  body{background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto; margin:0}
-  .wrap{max-width:1000px;margin:28px auto;padding:0 14px}
-  h1{margin:0 0 12px;font-weight:700}
-  .bar{display:flex;gap:8px;align-items:center;margin:10px 0 14px}
-  .in{flex:1;padding:14px 16px;border-radius:12px;border:1px solid var(--border);background:#0f1a38;color:#fff}
-  .btn{padding:12px 16px;border-radius:12px;border:1px solid var(--border);background:var(--brand);color:#fff;cursor:pointer}
-  .btn:disabled{opacity:.6;cursor:not-allowed}
-  .chips{display:flex;flex-wrap:wrap;gap:8px;margin:6px 0 12px}
-  .chip{background:#0f1a38;border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:999px;cursor:pointer}
-  .row{display:flex;gap:16px;align-items:center}
-  .card{background:var(--panel);border:1px solid var(--border);border-radius:16px;padding:14px;margin:12px 0}
-  .muted{color:var(--muted)}
-  .badge{background:#0f1a38;border:1px solid var(--border);padding:3px 8px;border-radius:999px;font-size:12px}
-  pre{white-space:pre-wrap;word-wrap:break-word;background:#0f1429;border:1px solid var(--border);padding:12px;border-radius:12px}
-  .flex{display:flex;gap:8px;align-items:center}
-  .space{height:8px}
-  a{color:#9dc1ff}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
-  .linkCard{background:#0f1429;border:1px solid var(--border);border-radius:12px;padding:10px}
-  .footer{opacity:.7;font-size:13px;margin:18px 0}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:"Cairo",system-ui}
+  header{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--border);padding:10px 14px;text-align:center}
+  header h1{margin:0;font-size:18px;color:var(--muted)}
+  header small{opacity:.7}
+  .wrap{max-width:960px;margin:0 auto;padding:16px}
+  .tabs{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+  .tab{padding:8px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bubble);cursor:pointer}
+  .tab.active{background:var(--accent);color:white;border-color:transparent}
+  .pane{display:none} .pane.active{display:block}
+  .chat{display:flex;flex-direction:column;gap:10px;margin-bottom:90px}
+  .msg{max-width:85%;padding:12px 14px;border-radius:14px;border:1px solid var(--border);background:var(--bubble);white-space:pre-wrap;line-height:1.7}
+  .user{align-self:flex-start;background:var(--bubble-user)}
+  .bot{align-self:flex-end}
+  .meta{display:block;font-size:12px;opacity:.6;margin-top:6px}
+  .footer{position:fixed;inset-inline:0;bottom:0;background:var(--panel);border-top:1px solid var(--border)}
+  .send{max-width:960px;margin:10px auto;display:flex;gap:8px;padding:0 16px}
+  input[type=text]{flex:1;padding:12px;border-radius:12px;border:1px solid var(--border);background:#0f1a38;color:white}
+  button{padding:12px 16px;border:none;border-radius:12px;background:var(--accent);color:white;font-weight:700;cursor:pointer}
+  button:disabled{opacity:.6;cursor:not-allowed}
+  a{color:#8fb1ff} .card{background:#0f1530;border:1px solid var(--border);border-radius:10px;padding:10px;margin:8px 0}
+  .mono{font-family:ui-monospace,Consolas,monospace;font-size:13px}
+  .uploader{border:1px dashed var(--border);border-radius:12px;padding:14px;background:#0f1530}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .muted{opacity:.75}
 </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1>🤖 بسّام الذكي <span class="badge">v3.5</span></h1>
-    <div class="muted">اكتب سؤالك بالعربي أو الإنجليزي. جرّب أمثلة سريعة بالأسفل.</div>
+<header>
+  <h1>🤖 بسّام الذكي — v3.6</h1>
+  <small>دردشة • رفع PDF للفهرسة • بحث عكسي للصور</small>
+</header>
 
-    <div class="bar">
-      <input id="q" class="in" placeholder="مثال: صمّم كمرة 6م Mu=120 kN·m … أو: اكتب دالة Python تجمع قائمتين">
-      <button id="send" class="btn" onclick="ask()">إرسال</button>
+<div class="wrap">
+  <div class="tabs">
+    <div class="tab active" data-pane="chat">الدردشة</div>
+    <div class="tab" data-pane="pdf">رفع PDF</div>
+    <div class="tab" data-pane="image">بحث عكسي بصورة</div>
+    <div class="tab" onclick="window.open('/files_list','_blank')">📂 ملفاتي</div>
+    <div class="tab" onclick="window.open('/healthz','_blank')">الصحة</div>
+  </div>
+
+  <!-- دردشة -->
+  <div id="pane-chat" class="pane active">
+    <div id="chat" class="chat">
+      <div class="msg bot">
+        أهلًا! أنا بسّام 😊 اكتب سؤالك وسأحاول أولًا من ملفاتك (RAG) ثم الويب ثم الرياضيات.
+        <span class="meta">جرّب: <span class="muted">"ما هي الخرسانة المسلحة؟"، "تفاضل x^3"، "ابحث في الويب عن عاصمة ألمانيا"</span></span>
+      </div>
     </div>
-
-    <div class="chips" id="examples">
-      <span class="chip">ما هي طبقات OSI؟</span>
-      <span class="chip">صمّم كمرة 6م Mu=120 kN·m</span>
-      <span class="chip">ما عاصمة ألمانيا؟</span>
-      <span class="chip">اشرح REST API ببساطة</span>
-      <span class="chip">اكتب سكربت بايثون يحسب مشتقة sin(x)*x^2</span>
-      <span class="chip">احسب هبوط الجهد لكابل 150م 100A ثلاثي الأوجه 400V</span>
-      <span class="chip">ما الفرق بين TCP و UDP؟</span>
-    </div>
-
-    <div id="out" class="card">
-      <div class="muted">النتائج ستظهر هنا…</div>
-    </div>
-
-    <div class="flex">
-      <button class="btn" style="background:#2a3b8f" onclick="copyLast()">نسخ النتيجة</button>
-      <button class="btn" style="background:#1f7a4f" onclick="sendFeedback(true)">👍 مفيد</button>
-      <button class="btn" style="background:#8f2a2a" onclick="sendFeedback(false)">👎 غير دقيق</button>
-      <span class="muted" id="fbMsg"></span>
-    </div>
-
     <div class="footer">
-      روابط سريعة:
-      <a href="/healthz" target="_blank">healthz</a> •
-      <a href="https://github.com" target="_blank">GitHub</a>
+      <div class="send">
+        <input id="q" type="text" placeholder="اكتب سؤالك هنا… ثم اضغط إرسال أو Enter" onkeydown="if(event.key==='Enter'){send()}" />
+        <button id="btn" onclick="send()">إرسال</button>
+      </div>
     </div>
   </div>
 
+  <!-- رفع PDF -->
+  <div id="pane-pdf" class="pane">
+    <div class="uploader">
+      <div class="row">
+        <input id="pdf" type="file" accept="application/pdf" />
+        <button onclick="uploadPDF()">رفع و فهرسة</button>
+      </div>
+      <div id="pdf-result" class="card mono"></div>
+      <small class="muted">بعد الرفع أُحوّل الـPDF إلى نص وأضيفه لفهرس RAG تلقائيًا.</small>
+    </div>
+  </div>
+
+  <!-- بحث عكسي بصورة -->
+  <div id="pane-image" class="pane">
+    <div class="uploader">
+      <div class="row">
+        <input id="img" type="file" accept="image/*" />
+        <button onclick="uploadImage()">رفع صورة</button>
+      </div>
+      <div id="img-result" class="card"></div>
+      <small class="muted">سأعطيك روابط بحث عكسي جاهزة (Google/Bing/Yandex/TinEye) على الصورة التي رفعتها.</small>
+    </div>
+  </div>
+</div>
+
 <script>
-  const qEl = document.getElementById('q');
-  const out = document.getElementById('out');
-  const sendBtn = document.getElementById('send');
-  const ex = document.getElementById('examples');
-  let lastQ = "", lastAnswerText = "", lastTags = [];
+const chat = document.getElementById('chat');
+const qbox = document.getElementById('q');
+const btn  = document.getElementById('btn');
 
-  ex.addEventListener('click', (e)=>{
-    if(e.target.classList.contains('chip')){
-      qEl.value = e.target.textContent.trim();
-      ask();
-    }
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    const id = t.getAttribute('data-pane');
+    document.querySelectorAll('.pane').forEach(p=>p.classList.remove('active'));
+    if (id) document.getElementById('pane-'+id).classList.add('active');
   });
+});
 
-  qEl.addEventListener('keydown', (e)=>{
-    if(e.key === 'Enter'){ ask(); }
-  });
+function add(text, who='bot', isHTML=false){
+  const div=document.createElement('div');
+  div.className='msg '+(who==='user'?'user':'bot');
+  div[isHTML?'innerHTML':'textContent']=text;
+  chat.appendChild(div);
+  window.scrollTo({top:document.body.scrollHeight,behavior:'smooth'});
+  return div;
+}
 
-  function renderWeb(results){
-    if(!results || !results.length) return "<div class='muted'>لا نتائج من الويب.</div>";
-    return `<div class="grid">` + results.map(r=>`
-      <div class="linkCard">
-        <div><b>${escapeHtml(r.title||'بدون عنوان')}</b></div>
-        <div><a href="${r.link}" target="_blank">${r.link}</a></div>
-        <div class="muted">${escapeHtml(r.summary||r.snippet||'')}</div>
-      </div>`).join('') + `</div>`;
-  }
+function showWeb(results){
+  if(!results||!results.length) return 'لم أجد نتائج من الويب.';
+  return results.map(r=>`
+    <div class="card">
+      <b>${r.title||''}</b><br>
+      <a href="${r.link}" target="_blank">${r.link}</a>
+      <div>${r.summary||r.snippet||''}</div>
+    </div>`).join('');
+}
 
-  function escapeHtml(s){
-    return (s||'').replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;' }[m]));
-  }
+async function send(){
+  const q=(qbox.value||'').trim();
+  if(!q) return;
+  add(q,'user'); qbox.value=''; qbox.focus();
+  const wait=add('⏳ جاري المعالجة…','bot');
 
-  async function ask(){
-    const q = qEl.value.trim();
-    if(!q){ out.innerHTML = "<div class='muted'>رجاءً اكتب سؤالك.</div>"; return; }
-    lastQ = q; lastAnswerText = ""; lastTags = [];
-    sendBtn.disabled = true; out.innerHTML = "<div class='muted'>⏳ جاري المعالجة…</div>";
-    try{
-      const res = await fetch('/ask?q=' + encodeURIComponent(q));
-      if(!res.ok){ out.innerHTML = "<div class='muted'>حدث خطأ في الخادم.</div>"; sendBtn.disabled=false; return; }
-      const j = await res.json();
+  btn.disabled=true;
+  try{
+    const res=await fetch('/ask?q='+encodeURIComponent(q));
+    const j=await res.json();
+    wait.remove();
 
-      if(j.type === 'math'){
-        lastAnswerText = JSON.stringify(j.result,null,2);
-        lastTags = ['math'];
-        out.innerHTML = `
-          <div class="row"><div class="badge">رياضيات</div></div>
-          <pre>${escapeHtml(lastAnswerText)}</pre>`;
-      }
-      else if(j.type === 'rag'){
-        lastAnswerText = (j.summary||'') + "\n\n" + JSON.stringify(j.hits,null,2);
-        lastTags = ['rag','local'];
-        out.innerHTML = `
-          <div class="row"><div class="badge">من ملفاتك (RAG)</div></div>
-          ${j.summary ? `<div class="card">${escapeHtml(j.summary)}</div>` : ''}
-          <pre>${escapeHtml(JSON.stringify(j.hits,null,2))}</pre>`;
-      }
-      else if(j.type === 'web'){
-        lastAnswerText = (j.results||[]).map(x=>`${x.title}\n${x.link}\n${x.summary||x.snippet||''}`).join("\n\n");
-        lastTags = ['web','search'];
-        out.innerHTML = `
-          <div class="row"><div class="badge">بحث ويب</div></div>
-          ${renderWeb(j.results)}`;
-      }
-      else if(j.msg){
-        lastAnswerText = j.msg;
-        out.innerHTML = `<div class="card">${escapeHtml(j.msg)}</div>`;
-      } else {
-        lastAnswerText = JSON.stringify(j,null,2);
-        out.innerHTML = `<pre>${escapeHtml(lastAnswerText)}</pre>`;
-      }
-    }catch(e){
-      out.innerHTML = "<div class='muted'>تعذر الاتصال بالخادم.</div>";
-    }finally{
-      sendBtn.disabled = false;
+    if(j.type==='rag'){
+      add('<b>📚 من ملفاتك (RAG):</b><div class="mono">'+(j.summary||'')+'</div>','bot',true);
+    }else if(j.type==='web'){
+      add('<b>🌐 من الويب:</b>'+showWeb(j.results),'bot',true);
+    }else if(j.type==='math'){
+      add('<b>🧮 رياضيات:</b><pre class="mono">'+JSON.stringify(j.result,null,2)+'</pre>','bot',true);
+    }else if(j.msg){
+      add(j.msg,'bot');
+    }else{
+      add('<pre class="mono">'+JSON.stringify(j,null,2)+'</pre>','bot',true);
     }
+  }catch(e){
+    wait.remove();
+    add('⚠️ حدث خطأ بالاتصال بالخادم.','bot');
+  }finally{
+    btn.disabled=false;
   }
+}
 
-  function copyLast(){
-    if(!lastAnswerText){ return; }
-    navigator.clipboard.writeText(lastAnswerText).then(()=>{
-      flash("تم النسخ ✅");
-    });
+async function uploadPDF(){
+  const inp=document.getElementById('pdf');
+  const box=document.getElementById('pdf-result');
+  if(!inp.files.length){ box.textContent='اختر ملف PDF أولًا.'; return; }
+  const fd=new FormData(); fd.append('file', inp.files[0]);
+  box.textContent='⏳ جاري الرفع والفهرسة...';
+  try{
+    const res=await fetch('/upload/pdf',{method:'POST',body:fd});
+    const j=await res.json();
+    box.innerHTML='<b>تم الرفع ✔️</b><br>الرابط: <a target="_blank" href="'+j.file_url+'">'+j.file_url+'</a><br>عدد المستندات في الفهرس: '+j.indexed_docs;
+  }catch(e){
+    box.textContent='فشل الرفع.';
   }
+}
 
-  async function sendFeedback(isGood){
-    if(!lastQ || !lastAnswerText){ flash("لا توجد نتيجة لإرسالها."); return; }
-    const payload = {
-      question: lastQ,
-      answer: lastAnswerText,
-      tags: [...lastTags, isGood ? 'helpful' : 'not_helpful']
-    };
-    try{
-      const r = await fetch('/feedback', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(payload)
-      });
-      const j = await r.json();
-      if(j.ok){ flash("وصلت ملاحظتك، شكرًا ❤️"); }
-      else { flash("تعذر إرسال الملاحظة."); }
-    }catch(e){ flash("تعذر إرسال الملاحظة."); }
+async function uploadImage(){
+  const inp=document.getElementById('img');
+  const box=document.getElementById('img-result');
+  if(!inp.files.length){ box.textContent='اختر صورة أولًا.'; return; }
+  const fd=new FormData(); fd.append('file', inp.files[0]);
+  box.textContent='⏳ جاري الرفع...';
+  try{
+    const res=await fetch('/upload/image',{method:'POST',body:fd});
+    const j=await res.json();
+    box.innerHTML = `
+      <div>تم الرفع ✔️ — <a target="_blank" href="${j.image_url}">فتح الصورة</a></div>
+      <div class="card">
+        <div><a target="_blank" href="${j.reverse.google}">بحث Google</a></div>
+        <div><a target="_blank" href="${j.reverse.bing}">بحث Bing</a></div>
+        <div><a target="_blank" href="${j.reverse.yandex}">بحث Yandex</a></div>
+        <div><a target="_blank" href="${j.reverse.tineye}">بحث TinEye</a></div>
+      </div>`;
+  }catch(e){
+    box.textContent='فشل الرفع.';
   }
-
-  function flash(msg){
-    const el = document.getElementById('fbMsg');
-    el.textContent = msg;
-    setTimeout(()=>{ el.textContent = ""; }, 3000);
-  }
+}
 </script>
 </body>
 </html>
