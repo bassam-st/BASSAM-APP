@@ -1,0 +1,13 @@
+{
+  "social_domains": [
+    "site:x.com", "site:twitter.com", "site:facebook.com", "site:instagram.com",
+    "site:youtube.com", "site:linkedin.com", "site:tiktok.com", "site:snapchat.com",
+    "site:telegram.me", "site:telegram.org", "site:reddit.com", "site:quora.com"
+  ],
+  "market_domains": [
+    "site:alibaba.com", "site:1688.com", "site:aliexpress.com",
+    "site:amazon.com", "site:amazon.ae", "site:amazon.sa", "site:amazon.de",
+    "site:ebay.com", "site:noon.com", "site:temu.com", "site:etsy.com"
+  ],
+  "government_domains": ["site:.gov", "site:.gov.sa", "site:.gov.ae", "site:.edu", "site:.edu.sa"]
+}
