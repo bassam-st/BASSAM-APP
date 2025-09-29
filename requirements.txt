@@ -5,7 +5,13 @@ httpx
 beautifulsoup4
 readability-lxml
 duckduckgo_search
+wikipedia
 sumy==0.11.0
 sympy==1.12
 numpy
+rapidfuzz
+rank-bm25
+diskcache
 python-multipart
+pypdf
+Pillow
