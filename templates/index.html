@@ -1,32 +1,162 @@
 <!doctype html>
-<html lang="ar" dir="rtl">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Bassam الذكي — v3.2</title>
+<meta charset="utf-8" />
+<title>بسّام الذكي 4.0 — محادثة</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-body{font-family:system-ui;background:#0b1020;color:#fff;margin:0}
-.container{max-width:900px;margin:auto;padding:20px}
-.input-row{display:flex;gap:10px;margin-top:15px}
-input{flex:1;padding:10px;border-radius:8px;border:none;background:#111a33;color:#fff}
-button{background:#3a6eff;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-weight:bold;cursor:pointer}
-.chat{background:#10182e;border-radius:12px;padding:15px;min-height:60vh;overflow:auto;margin-top:20px}
-.msg{margin:8px 0;padding:10px;border-radius:10px;line-height:1.6}
-.user{background:#162550}.bot{background:#0f1a38}
-a{color:#8fb1ff}
+  :root{--bg:#0b1020;--card:#121933;--muted:#8fa3ff;--text:#e9edff;--accent:#3a6dff;--border:#223066}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,Segoe UI,Arial}
+  .wrap{max-width:900px;margin:auto;padding:16px}
+  header{display:flex;align-items:center;gap:10px;margin:8px 0 16px}
+  header h1{font-size:20px;margin:0} header .badge{font-size:12px;opacity:.7}
+  .examples{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 14px}
+  .ex{background:var(--card);border:1px solid var(--border);color:var(--muted);padding:8px 10px;border-radius:10px;cursor:pointer}
+  .chat{display:flex;flex-direction:column;gap:10px;margin-bottom:84px}
+  .msg{display:flex;gap:10px;align-items:flex-start}
+  .msg .bubble{padding:12px 14px;border-radius:14px;max-width:85%;white-space:pre-wrap;word-wrap:break-word;border:1px solid var(--border)}
+  .me   .bubble{background:#123455}
+  .bot  .bubble{background:var(--card)}
+  .meta{font-size:12px;color:var(--muted);margin-top:6px}
+  .sources{margin-top:8px;border-top:1px dashed var(--border);padding-top:6px;font-size:13px}
+  .sources a{color:var(--muted)}
+  .inputbar{position:fixed;left:0;right:0;bottom:0;background:linear-gradient(180deg, #0b1020aa, #0b1020 40%);padding:12px}
+  .ibox{max-width:900px;margin:auto;display:flex;gap:8px}
+  textarea{flex:1;min-height:48px;max-height:180px;resize:vertical;background:var(--card);color:var(--text);
+           border:1px solid var(--border);border-radius:12px;padding:12px}
+  button.send{background:var(--accent);border:0;color:#fff;padding:0 18px;border-radius:12px;font-weight:600}
+  .tiny{font-size:12px;opacity:.7}
+  a{color:#aecdff}
+  .thumbs{display:flex;gap:6px;margin-top:6px}
+  .thumbs button{background:#0f1a38;border:1px solid var(--border);color:#d6ddff;padding:6px 10px;border-radius:10px;cursor:pointer}
+  .code{background:#0f162f;border:1px solid #23325b;border-radius:10px;padding:10px;overflow:auto}
 </style>
-<div class="container">
-  <h2>🤖 بسّام الذكي — v3.2</h2>
-  <div class="chat" id="chat"><div class="msg bot">مرحبًا! اكتب سؤالك بالعربي وسأجيبك ✨</div></div>
-  <div class="input-row"><input id="q" placeholder="اكتب سؤالك…"><button id="send">إرسال</button></div>
-  <p>الصحة: <a href="/healthz" target="_blank">/healthz</a> • واجهة قديمة: <a href="/chatui" target="_blank">/chatui</a></p>
+
+<div class="wrap">
+  <header>
+    <h1>🤖 بسّام الذكي</h1>
+    <span class="badge">v4.0 • RAG + Math + Web</span>
+    <span class="tiny" id="stats"></span>
+  </header>
+
+  <div class="examples">
+    <div class="ex" onclick="quick('احسب المشتقة لـ sin(x)^2 + 3x')">🔢 مشتقة</div>
+    <div class="ex" onclick="quick('احسب حديد بلاطة 5×6 سمك 15سم تقديريًا')">🏗️ كميات</div>
+    <div class="ex" onclick="quick('OSPF ولا BGP لشبكة مؤسسة كبيرة؟')">🌐 شبكات</div>
+    <div class="ex" onclick="quick('what is the capital of Saudi Arabia?')">🌍 Capitals</div>
+  </div>
+
+  <div id="chat" class="chat"></div>
+
+  <div class="tiny">
+    الصحة: <a href="/healthz" target="_blank">/healthz</a> • تدريب الفهرس: <code>POST /train</code> • تغذية راجعة: <code>POST /feedback</code>
+  </div>
 </div>
+
+<div class="inputbar">
+  <div class="ibox">
+    <textarea id="q" placeholder="اكتب رسالتك… (Enter للإرسال، Shift+Enter لسطر جديد)"></textarea>
+    <button class="send" onclick="send()">إرسال</button>
+  </div>
+</div>
+
 <script>
-const chat=document.getElementById('chat'),q=document.getElementById('q'),send=document.getElementById('send');
-function push(role,text){const d=document.createElement('div');d.className='msg '+role;d.textContent=text;chat.appendChild(d);chat.scrollTop=chat.scrollHeight;}
-async function ask(){const text=q.value.trim();if(!text)return;push('user',text);q.value='';send.disabled=true;
-try{const r=await fetch('/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});
-const j=await r.json();push('bot',j.answer||'—');}catch(e){push('bot','⚠️ خطأ أثناء الاتصال بالخادم.');}
-finally{send.disabled=false;q.focus();}}
-send.onclick=ask;q.addEventListener('keydown',e=>{if(e.key==='Enter'){ask();}});
+  const chatEl = document.getElementById('chat');
+  const qEl = document.getElementById('q');
+
+  // health stats
+  (async () => {
+    try{
+      const h = await fetch('/healthz').then(r=>r.json());
+      document.getElementById('stats').textContent = `docs: ${h.docs_indexed}`;
+    }catch(_){}
+  })();
+
+  function quick(text){ qEl.value = text; send(); }
+
+  function addMsg(role, html, sources=[]) {
+    const item = document.createElement('div');
+    item.className = 'msg ' + (role==='user'?'me':'bot');
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.innerHTML = html;
+    item.appendChild(bubble);
+
+    if (role==='assistant' && sources.length){
+      const src = document.createElement('div');
+      src.className = 'sources';
+      src.innerHTML = 'مصادر: ' + sources.map(s => `<a href="${s}" target="_blank">${s}</a>`).join(' • ');
+      bubble.appendChild(src);
+    }
+
+    chatEl.appendChild(item);
+    window.scrollTo({top: document.body.scrollHeight, behavior:'smooth'});
+    return bubble;
+  }
+
+  function renderAnswer(j){
+    if(j.type==='math'){
+      return `<b>نتيجة رياضية</b>
+      <div class="code">${escapeHtml(JSON.stringify(j.result,null,2))}</div>`;
+    }
+    if(j.type==='rag'){
+      return `<b>من ملفاتك (RAG)</b><div>${escapeHtml(j.summary || '')}</div>
+      <details><summary>النتائج</summary>
+      <div class="code">${escapeHtml(JSON.stringify(j.hits,null,2))}</div></details>`;
+    }
+    if(j.type==='web'){
+      const cards = j.results.map(r=>`
+        <div class="bubble" style="background:#0f162f;border:1px solid #23325b;margin-top:6px">
+          <b>${escapeHtml(r.title||'نتيجة')}</b><br>
+          <a href="${r.link}" target="_blank">${r.link}</a>
+          <div class="meta">${escapeHtml(r.summary||r.snippet||'')}</div>
+        </div>`).join('');
+      return `<b>بحث الويب</b>${cards}`;
+    }
+    if(j.msg){ return j.msg; }
+    return `<div class="code">${escapeHtml(JSON.stringify(j,null,2))}</div>`;
+  }
+
+  async function send(){
+    const text = qEl.value.trim();
+    if(!text) return;
+    qEl.value = '';
+    addMsg('user', escapeHtml(text));
+
+    const thinking = addMsg('assistant','…جارٍ التفكير');
+
+    try{
+      const res = await fetch('/ask?q=' + encodeURIComponent(text));
+      const j = await res.json();
+      thinking.innerHTML = renderAnswer(j);
+
+      // أزرار تقييم تحفظ المعرفة في learned.jsonl عند الضغط 👍
+      addFeedbackRow(thinking, text, j);
+
+    }catch(e){
+      thinking.innerHTML = 'تعذر الاتصال بالخادم.';
+    }
+  }
+
+  function addFeedbackRow(container, question, resp){
+    const fb = document.createElement('div');
+    fb.className = 'thumbs';
+    fb.innerHTML = `
+      <button title="مفيد" onclick="fbOk(this)">👍 مفيد</button>
+      <button title="غير دقيق" onclick="fbBad(this)">👎 غير دقيق</button>`;
+    container.appendChild(fb);
+
+    window.fbOk = async (btn)=>{
+      btn.disabled=true; btn.textContent='تم الحفظ ✔️';
+      await fetch('/feedback',{method:'POST',headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({question, answer: stripHtml(container.innerHTML), tags: []})});
+    };
+    window.fbBad = (btn)=>{ btn.disabled=true; btn.textContent='أُبلغ'; };
+  }
+
+  function escapeHtml(s){ return s.replace(/[&<>"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m])); }
+  function stripHtml(s){ const d=document.createElement('div'); d.innerHTML=s; return d.textContent||d.innerText||''; }
+
+  // Enter = إرسال
+  qEl.addEventListener('keydown', e=>{
+    if(e.key==='Enter'&& !e.shiftKey){ e.preventDefault(); send(); }
+  });
 </script>
-</html>
