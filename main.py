@@ -43,7 +43,8 @@ async def search_route(q: str = Form(...), want_prices: bool = Form(False)):
     try:
         results = deep_search(q_norm, include_prices=want_prices)
         summary = smart_summarize(" ".join(r["snippet"] for r in results))
-        log_search(q_norm, summary, results)
+        log_search(q_norm, [r["url"] for r in results])
+save_feedback(q_norm, summary)  # (اختياري) خزّن الإجابة
         return JSONResponse({"answer": summary, "sources": results})
     except Exception as e:
         return JSONResponse({"error": str(e)})
