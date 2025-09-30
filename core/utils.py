@@ -95,3 +95,6 @@ def is_arabic(text: str) -> bool:
     if not text:
         return False
     return bool(re.search(r"[\u0600-\u06FF]", text))
+    def ensure_dirs(*dirs):
+    for d in dirs:
+        os.makedirs(d, exist_ok=True)
