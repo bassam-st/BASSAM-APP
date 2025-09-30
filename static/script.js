@@ -1,92 +1,49 @@
-async function jsonFetch(url, options){
-  const r = await fetch(url, options);
-  if(!r.ok) throw new Error(await r.text());
+async function postJSON(url, data) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(data)
+  });
   return r.json();
 }
 
-// ===== Theme (light/dark)
-const themeBtn = document.getElementById('themeBtn');
-function applyTheme(t){ document.body.classList.toggle('light', t==='light'); localStorage.setItem('theme', t); }
-applyTheme(localStorage.getItem('theme') || 'dark');
-themeBtn.addEventListener('click', ()=> applyTheme(document.body.classList.contains('light') ? 'dark' : 'light'));
+function el(id){ return document.getElementById(id); }
 
-// ===== PWA install
-let deferredPrompt; const installBtn = document.getElementById('installBtn');
-window.addEventListener('beforeinstallprompt', (e)=>{ e.preventDefault(); deferredPrompt = e; installBtn.hidden = false; });
-installBtn.addEventListener('click', async ()=>{
-  if(!deferredPrompt) return; await deferredPrompt.prompt(); deferredPrompt = null; installBtn.hidden = true;
-});
-
-// ===== Search
-const ans = document.getElementById('answer');
-const src = document.getElementById('sources');
-const latencyEl = document.getElementById('latency');
-
-document.getElementById('searchForm').addEventListener('submit', async (e)=>{
+async function doSearch(e){
   e.preventDefault();
-  const q = document.getElementById('q').value.trim();
-  const want_prices = document.getElementById('want_prices').checked;
-  if(!q) return;
-
-  ans.textContent = '… يبحث الآن';
-  src.innerHTML = '';
-  const t0 = performance.now();
-  try {
-    const out = await jsonFetch(`/api/search?q=${encodeURIComponent(q)}&want_prices=${want_prices}`);
-    const t1 = performance.now();
-    latencyEl.textContent = `الزمن: ${Math.round(t1 - t0)}ms`;
-    ans.textContent = out.answer || '';
-    (out.sources||[]).forEach(s=>{
-      const a = document.createElement('a'); a.href = s.url; a.target = '_blank'; a.textContent = `${s.site} — ${s.title}`; src.appendChild(a);
-    });
-    if(out.prices){
-      const h = document.createElement('div'); h.innerHTML = '<h4>الأسعار</h4>'; src.appendChild(h);
-      out.prices.forEach(p=>{ const a=document.createElement('a'); a.href=p.url; a.target='_blank'; a.textContent=p.site; src.appendChild(a); });
-    }
-    // بعد نجاح البحث سجّل حدث تعلّم سريع محليًا (اختياري على الباك-إند)
-    try {
-      const fd = new FormData(); fd.append('query', q); fd.append('top_k', '3');
-      await fetch('/api/learn', { method:'POST', body: fd }); // لا ننتظر النتيجة
-    } catch {}
-  } catch (err) {
-    ans.textContent = 'حدث خطأ في البحث'; console.log(err);
+  el("answer").textContent = "… جاري البحث";
+  el("sources").innerHTML = "";
+  const q = el("q").value.trim();
+  const want_prices = el("want_prices").checked;
+  try{
+    const res = await postJSON("/search", { q, want_prices });
+    if(!res.ok){ throw new Error(res.error || "search_failed"); }
+    el("latency").textContent = `الوقت: ${res.latency_ms}ms`;
+    el("answer").textContent = res.answer || "—";
+    el("sources").innerHTML = (res.sources || []).map(
+      s => `<a href="${s.url}" target="_blank" rel="noreferrer">${s.title || s.url}</a>`
+    ).join("");
+  }catch(err){
+    el("answer").textContent = "حدث خطأ في البحث";
+    console.error(err);
   }
-});
+}
 
-// ===== Learn button (صريح)
-document.getElementById('learnBtn').addEventListener('click', async (e)=>{
+async function doPeople(e){
   e.preventDefault();
-  const q = document.getElementById('q').value.trim(); if(!q) return;
-  const fd = new FormData(); fd.append('query', q); fd.append('top_k','3');
-  try { await fetch('/api/learn', { method:'POST', body: fd }); alert('تم تحديث ذاكرة بسام من هذا البحث ✅'); } catch {}
-});
+  el("profiles").innerHTML = "…";
+  const name = el("name").value.trim();
+  try{
+    const res = await postJSON("/people", { name });
+    if(!res.ok){ throw new Error(res.error || "people_failed"); }
+    el("profiles").innerHTML = (res.sources || []).map(
+      s => `<a href="${s.url}" target="_blank" rel="noreferrer">${s.title || s.url}</a>`
+    ).join("") || "لا توجد نتائج.";
+  }catch(err){
+    el("profiles").textContent = "حدث خطأ";
+    console.error(err);
+  }
+}
 
-// ===== Profile / username lookup
-document.getElementById('profileForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const name = document.getElementById('name').value.trim(); if(!name) return;
-  const out = await jsonFetch(`/api/profile?name=${encodeURIComponent(name)}`);
-  const box = document.getElementById('profiles'); box.innerHTML = '';
-  (out.links||[]).forEach(l=>{ const a=document.createElement('a'); a.href=l.url; a.target='_blank'; a.textContent=l.site; box.appendChild(a); });
-  (out.web||[]).forEach(w=>{ const a=document.createElement('a'); a.href=w.url; a.target='_blank'; a.textContent=w.title || w.url; box.appendChild(a); });
-});
-
-// ===== PDF upload
-document.getElementById('pdfForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const f = document.getElementById('pdfFile').files[0]; if(!f) return;
-  const fd = new FormData(); fd.append('file', f);
-  const out = await jsonFetch('/api/upload/pdf', { method:'POST', body: fd });
-  document.getElementById('pdfResult').textContent = out.ok ? `تمت الفهرسة: ${out.indexed_file}` : 'فشل الرفع';
-});
-
-// ===== Image upload + reverse image links
-document.getElementById('imgForm').addEventListener('submit', async (e)=>{
-  e.preventDefault();
-  const f = document.getElementById('imgFile').files[0]; if(!f) return;
-  const fd = new FormData(); fd.append('file', f);
-  const out = await jsonFetch('/api/search_image', { method:'POST', body: fd });
-  const box = document.getElementById('imgResult'); box.innerHTML = '';
-  const img = document.createElement('img'); img.src = out.image_url; img.style.maxWidth='180px'; img.style.borderRadius='12px'; box.appendChild(img);
-  (out.links||[]).forEach(l=>{ const a=document.createElement('a'); a.href=l.url; a.target='_blank'; a.textContent=l.name; box.appendChild(a); });
-});
+document.getElementById("searchForm").addEventListener("submit", doSearch);
+document.getElementById("peopleForm").addEventListener("submit", doPeople);
