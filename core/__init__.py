@@ -1,4 +1,4 @@
-# core/__init__.py — تصدير الدوال العامة للوصول السريع
+# core/__init__.py — تصدير الدوال العامة
 
 from .utils import (
     dedup_by_url,
@@ -8,4 +8,6 @@ from .utils import (
     convert_arabic_numbers,
     is_arabic,
     clean_html,
+    normalize_spaces,
+    normalize_text,
 )
