@@ -1,66 +1,45 @@
-# -*- coding: utf-8 -*-
-# ملخّص ذكي مع Sumy + آلية احتياطية
+# core/summarizer.py
+# تلخيص بسيط بدون اعتماد على sumy — يعمل عربي/إنجليزي
 
-from typing import List
 import re
+from collections import Counter
 
-# نحاول استخدام sumy، وإن فشلت نستخدم تلخيصًا بسيطًا احتياطيًا
-try:
-    from sumy.parsers.plaintext import PlaintextParser
-    from sumy.nlp.tokenizers import Tokenizer
-    from sumy.summarizers.lsa import LsaSummarizer
-    from sumy.nlp.stemmers import Stemmer
-    from sumy.utils import get_stop_words
-    _HAS_SUMY = True
-except Exception:
-    _HAS_SUMY = False
+_AR_STOP = {
+    "في","من","على","إلى","الى","عن","أن","إن","او","أو","و","ثم","لكن","بل",
+    "كان","كانت","يكون","لقد","قد","تم","هذه","هذا","ذلك","تلك","هو","هي",
+    "هناك","كما","ما","لا","لم","لن","إنه","أنها","أي","أية","مع","بين","حتى",
+}
 
+_EN_STOP = {
+    "the","a","an","and","or","but","to","of","in","on","for","with","as",
+    "is","it","this","that","these","those","by","from","at","be","are","was","were",
+    "have","has","had","not","no","yes","you","we","they","he","she",
+}
 
-def _split_sentences(text: str) -> List[str]:
-    # تقسيم بسيط للجُمل يدعم العربية والإنجليزية
-    text = re.sub(r"\s+", " ", (text or "").strip())
-    # نقاط، علامات استفهام، تعجب… الخ
-    parts = re.split(r"(?<=[\.!\؟\!])\s+", text)
-    # إزالة الفراغات الفارغة
-    return [p.strip() for p in parts if p.strip()]
-
-
-def _fallback_summarize(text: str, max_sentences: int = 5) -> str:
-    # اختيار الجُمل الأطول/الأكثر معلومات كتلخيص بسيط
-    sents = _split_sentences(text)
-    if len(sents) <= max_sentences:
-        return " ".join(sents)
-    # ترتيب بحسب الطول (كتخمين للمعلوماتية) ثم الحفاظ على ترتيبها الأصلي
-    top = sorted(range(len(sents)), key=lambda i: len(sents[i]), reverse=True)[:max_sentences]
-    top = sorted(top)
-    return " ".join(sents[i] for i in top)
-
+def _sentences(text: str):
+    # يقسم الجمل مع دعم علامات الوقف العربية
+    sents = re.split(r"(?<=[\.!\?…؟])\s+", text.strip())
+    return [s.strip() for s in sents if s.strip()]
 
 def smart_summarize(text: str, max_sentences: int = 5) -> str:
-    """
-    يُلخّص نصًا طويلًا إلى عدد جُمل محدد.
-    - يحاول استخدام Sumy (LSA) باللغة الإنجليزية.
-    - عند الفشل أو النص القصير، يستخدم آلية احتياطية بسيطة.
-    """
+    text = (text or "").strip()
     if not text:
         return ""
+    sents = _sentences(text)
+    if len(sents) <= max_sentences:
+        return " ".join(sents)
 
-    # نص قصير؟ لا نلخّصه
-    if len(text) < 500:
-        return text.strip()
+    # تكرارية الكلمات (بدون الوقف)
+    tokens = re.findall(r"\w+", text.lower(), flags=re.UNICODE)
+    stop = _AR_STOP | _EN_STOP
+    freq = Counter(t for t in tokens if t not in stop and len(t) > 2)
 
-    if _HAS_SUMY:
-        try:
-            # Sumy لا يدعم العربية بشكل كامل؛ نستخدم English tokenizer كافتراض
-            lang = "english"
-            parser = PlaintextParser.from_string(text, Tokenizer(lang))
-            summarizer = LsaSummarizer(Stemmer(lang))
-            summarizer.stop_words = get_stop_words(lang)
-            sents = [str(s) for s in summarizer(parser.document, max_sentences)]
-            if sents:
-                return " ".join(sents)
-        except Exception:
-            pass
+    def score(sent: str) -> float:
+        toks = re.findall(r"\w+", sent.lower(), flags=re.UNICODE)
+        if not toks:
+            return 0.0
+        return sum(freq.get(t, 0) for t in toks) / (len(toks) + 1)
 
-    # احتياطي
-    return _fallback_summarize(text, max_sentences=max_sentences)
+    ranked = sorted(((score(s), i, s) for i, s in enumerate(sents)), reverse=True)
+    top = sorted(ranked[:max_sentences], key=lambda x: x[1])  # حافظ على ترتيب الظهور
+    return " ".join(s for _, _, s in top)
