@@ -1,151 +1,134 @@
-# main.py — تطبيق "بسام الذكي"
-# بحث عميق + تلخيص + تعلم ذاتي + رفع PDF وصور + واجهة PWA
-
-from fastapi import FastAPI, Request, Form, File, UploadFile
+# main.py — تطبيق بسام الذكي (نسخة Render مستقرة)
+from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-import os
-from typing import List
-
-# ========== Imports داخلية ==========
 from core.search import deep_search
 from core.summarizer import smart_summarize
-from core.utils import ensure_dirs, extract_image_text
-
-# التعلم الذاتي
+from core.utils import extract_image_text, extract_pdf_text
 from core.services.learning import save_feedback, log_search
 
-# PDF (مع معالجة احتياطية إن لم تتوفر الأداة)
-try:
-    from core.services.pdf_tools import extract_pdf_text
-except Exception:
-    def extract_pdf_text(_path: str) -> str:
-        return ""
+import os
 
-# ========== إعداد التطبيق ==========
-app = FastAPI(title="بسام الذكي — بحث عميق", version="2.0")
+# إنشاء التطبيق
+app = FastAPI(title="Bassam الذكي", version="3.1")
 
-# ملفات ثابتة + القوالب
+# ربط ملفات الواجهة
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# مجلدات لازمة
-ensure_dirs(["static/uploads", "data/learning_logs", "logs", "data/ingested"])
 
-# ========== الصفحة الرئيسية ==========
+# ===== الصفحة الرئيسية =====
 @app.get("/", response_class=HTMLResponse)
 async def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-# ========== البحث العام ==========
+
+# ===== اختبار الصحة =====
+@app.get("/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
+# ===== دالة البحث =====
 @app.post("/search")
-async def search_route(q: str = Form(...), want_prices: bool = Form(False)):
+async def search_route(request: Request, q: str = Form(None), want_prices: bool = Form(False)):
     """
-    ينفّذ بحثًا عميقًا عبر الويب ثم يكوّن ملخّصًا من مقتطفات النتائج.
-    يعيد: {"answer": "...", "sources": [...]}
+    نقطة البحث الأساسية — تدعم Form أو JSON
     """
     try:
+        # جلب البيانات سواء كانت Form أو JSON
+        if q is None:
+            try:
+                data = await request.json()
+                q = data.get("q", "")
+                want_prices = data.get("want_prices", False)
+            except Exception:
+                q = ""
+
         query = (q or "").strip()
         if not query:
             return JSONResponse({"answer": "", "sources": []})
 
-        # 1) نفّذ البحث (ليست async)
+        # تنفيذ البحث
         results = deep_search(query, include_prices=want_prices)
 
-        # 2) لخص المقتطفات لعرض إجابة موجزة
+        # تلخيص النتائج
         corpus = " ".join(r.get("snippet", "") for r in results)
         summary = smart_summarize(corpus, max_sentences=5) if corpus else ""
 
-        # 3) تعلم ذاتي (سجل الكلمات/المصادر + خزّن الإجابة)
+        # حفظ سجل التعلم (اختياري)
         try:
             log_search(query, [r["url"] for r in results])
             save_feedback(query, summary)
         except Exception as e:
-            print(f"[learning/log error] {e}")
+            print(f"[LEARNING ERROR] {e}")
 
-        return JSONResponse({"answer": summary or "لم أجد إجابة واضحة الآن.", "sources": results})
+        return JSONResponse({
+            "answer": summary or "لم أجد إجابة دقيقة الآن، حاول بعبارة أخرى.",
+            "sources": results
+        })
 
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        print(f"[SEARCH ERROR] {e}")
+        return JSONResponse({"error": "حدث خطأ في البحث"}, status_code=500)
 
-# ========== رفع PDF وفهرسته ==========
-@app.post("/upload_pdf")
-async def upload_pdf(pdfFile: UploadFile = File(...)):
+
+# ===== رفع ملفات PDF =====
+@app.post("/upload/pdf")
+async def upload_pdf(file: UploadFile = File(...)):
     """
-    يحفظ PDF مؤقتًا، يستخرج النص، ويخزّنه ضمن data/ingested
+    يرفع ملف PDF ويفهرسه
     """
     try:
-        if not pdfFile.filename.lower().endswith(".pdf"):
-            return JSONResponse({"result": "الملف ليس PDF"}, status_code=400)
+        path = f"uploads/{file.filename}"
+        os.makedirs("uploads", exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(await file.read())
 
-        save_path = os.path.join("static", "uploads", pdfFile.filename)
-        with open(save_path, "wb") as f:
-            f.write(await pdfFile.read())
-
-        text = extract_pdf_text(save_path) or ""
+        text = extract_pdf_text(path)
         if not text.strip():
-            return JSONResponse({"result": "لم أجد نصًا داخل PDF."})
+            return JSONResponse({"msg": "لم يتم العثور على نص في الملف."})
 
-        # خزّن النص ليستفيد منه مستقبلًا (تعلم سلِس)
-        out_txt = os.path.join("data", "ingested", f"{os.path.splitext(pdfFile.filename)[0]}.txt")
-        with open(out_txt, "w", encoding="utf-8") as f:
-            f.write(text)
-
-        # حفظ مقتطف في السجل (اختياري)
-        try:
-            save_feedback(f"[PDF] {pdfFile.filename}", text[:500])
-        except Exception as e:
-            print(f"[feedback pdf] {e}")
-
-        return JSONResponse({"result": "تم رفع الملف وفهرسته بنجاح ✅"})
-
+        return JSONResponse({"msg": "تم رفع الملف وفهرسته بنجاح", "text": text[:1000]})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        print(f"[PDF ERROR] {e}")
+        return JSONResponse({"msg": "حدث خطأ أثناء رفع الملف."}, status_code=500)
 
-# ========== رفع صورة والبحث بالنص المستخرج ==========
-@app.post("/upload_image")
-async def upload_image(imgFile: UploadFile = File(...)):
+
+# ===== رفع الصور للبحث =====
+@app.post("/upload/image")
+async def upload_image(file: UploadFile = File(...)):
     """
-    يحفظ الصورة مؤقتًا، يستخرج النص عبر OCR، ثم يبحث في الويب بذلك النص
+    يرفع صورة ويستخرج النص منها للبحث
     """
     try:
-        save_path = os.path.join("static", "uploads", imgFile.filename)
-        with open(save_path, "wb") as f:
-            f.write(await imgFile.read())
+        path = f"uploads/{file.filename}"
+        os.makedirs("uploads", exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(await file.read())
 
-        text = extract_image_text(save_path) or ""
+        text = extract_image_text(path)
         if not text.strip():
-            return JSONResponse({"text": "", "sources": [], "result": "لم يُستخرج نص من الصورة."})
+            return JSONResponse({"msg": "لم يتم العثور على نص في الصورة."})
 
-        results = deep_search(text, include_images=True)
-        try:
-            save_feedback(f"[IMAGE OCR] {imgFile.filename}", text[:500])
-            log_search(text, [r["url"] for r in results])
-        except Exception as e:
-            print(f"[learning image] {e}")
-
-        return JSONResponse({"text": text, "sources": results})
-
+        return JSONResponse({"msg": "تم استخراج النص من الصورة بنجاح", "text": text})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
+        print(f"[IMAGE ERROR] {e}")
+        return JSONResponse({"msg": "حدث خطأ أثناء تحليل الصورة."}, status_code=500)
 
-# ========== حفظ Feedback يدوي (عند الحاجة من الواجهة) ==========
-@app.post("/feedback")
-async def feedback_route(query: str = Form(...), answer: str = Form("")):
+
+# ===== البحث عن أشخاص / يوزرات =====
+@app.post("/search/users")
+async def search_users(request: Request, name: str = Form(...)):
+    """
+    بحث عن أشخاص / يوزرات (بشكل مبدئي يستخدم بحث الويب)
+    """
     try:
-        save_feedback(query, answer)
-        return JSONResponse({"result": "تم الحفظ ✅"})
+        query = f"{name} site:linkedin.com OR site:twitter.com OR site:facebook.com"
+        results = deep_search(query)
+        return JSONResponse({"users": results})
     except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-# ========== فحص صحة ==========
-@app.get("/healthz")
-async def healthz():
-    return {"status": "ok", "version": "2.0"}
-
-# ========== تشغيل محلي ==========
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", "8000")))
+        print(f"[USER SEARCH ERROR] {e}")
+        return JSONResponse({"error": "حدث خطأ في البحث عن الأشخاص."}, status_code=500)
