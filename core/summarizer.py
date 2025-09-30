@@ -1,26 +1,66 @@
-from typing import List, Dict
-from sumy.parsers.plaintext import PlainTextParser
-from sumy.nlp.tokenizers import Tokenizer
-from sumy.summarizers.text_rank import TextRankSummarizer
-from .arabic_text import to_arabic
+# -*- coding: utf-8 -*-
+# ملخّص ذكي مع Sumy + آلية احتياطية
 
-def _sumy(text: str, sentences: int = 6) -> str:
-    parser = PlainTextParser.from_string(text, Tokenizer("english"))
-    s = TextRankSummarizer()
-    out = s(parser.document, sentences)
-    return " ".join(str(x) for x in out)
+from typing import List
+import re
 
-def smart_summarize(passages: List[Dict], query: str, max_chars: int = 3500) -> Dict:
-    if not passages:
-        return {"ar_answer": to_arabic("لم أجد محتوى كافيًا."), "raw": ""}
-    txt = "";
-    for p in passages:
-        if len(txt) > max_chars: break
-        piece = p.get("text","")
-        if piece: txt += piece.strip()+"\n"
-    try:
-        raw = _sumy(txt, sentences=6)
-        if len(raw) < 150: raw = txt[:1200]
-    except Exception:
-        raw = txt[:1200]
-    return {"ar_answer": to_arabic(raw), "raw": raw}
+# نحاول استخدام sumy، وإن فشلت نستخدم تلخيصًا بسيطًا احتياطيًا
+try:
+    from sumy.parsers.plaintext import PlaintextParser
+    from sumy.nlp.tokenizers import Tokenizer
+    from sumy.summarizers.lsa import LsaSummarizer
+    from sumy.nlp.stemmers import Stemmer
+    from sumy.utils import get_stop_words
+    _HAS_SUMY = True
+except Exception:
+    _HAS_SUMY = False
+
+
+def _split_sentences(text: str) -> List[str]:
+    # تقسيم بسيط للجُمل يدعم العربية والإنجليزية
+    text = re.sub(r"\s+", " ", (text or "").strip())
+    # نقاط، علامات استفهام، تعجب… الخ
+    parts = re.split(r"(?<=[\.!\؟\!])\s+", text)
+    # إزالة الفراغات الفارغة
+    return [p.strip() for p in parts if p.strip()]
+
+
+def _fallback_summarize(text: str, max_sentences: int = 5) -> str:
+    # اختيار الجُمل الأطول/الأكثر معلومات كتلخيص بسيط
+    sents = _split_sentences(text)
+    if len(sents) <= max_sentences:
+        return " ".join(sents)
+    # ترتيب بحسب الطول (كتخمين للمعلوماتية) ثم الحفاظ على ترتيبها الأصلي
+    top = sorted(range(len(sents)), key=lambda i: len(sents[i]), reverse=True)[:max_sentences]
+    top = sorted(top)
+    return " ".join(sents[i] for i in top)
+
+
+def smart_summarize(text: str, max_sentences: int = 5) -> str:
+    """
+    يُلخّص نصًا طويلًا إلى عدد جُمل محدد.
+    - يحاول استخدام Sumy (LSA) باللغة الإنجليزية.
+    - عند الفشل أو النص القصير، يستخدم آلية احتياطية بسيطة.
+    """
+    if not text:
+        return ""
+
+    # نص قصير؟ لا نلخّصه
+    if len(text) < 500:
+        return text.strip()
+
+    if _HAS_SUMY:
+        try:
+            # Sumy لا يدعم العربية بشكل كامل؛ نستخدم English tokenizer كافتراض
+            lang = "english"
+            parser = PlaintextParser.from_string(text, Tokenizer(lang))
+            summarizer = LsaSummarizer(Stemmer(lang))
+            summarizer.stop_words = get_stop_words(lang)
+            sents = [str(s) for s in summarizer(parser.document, max_sentences)]
+            if sents:
+                return " ".join(sents)
+        except Exception:
+            pass
+
+    # احتياطي
+    return _fallback_summarize(text, max_sentences=max_sentences)
