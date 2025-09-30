@@ -1,246 +1,168 @@
-# core/search.py  — بحث مجاني مع عمق اختياري
-from typing import List, Dict, Optional, Tuple
-import os, re, time, hashlib, json
+# core/search.py
+# بحث عميق مجاني: DuckDuckGo + Google/Bing (scrape خفيف) + Wikipedia
+from typing import List, Dict, Optional
+import time, random, re
 import requests
-from urllib.parse import urlparse, urljoin
 from bs4 import BeautifulSoup
+from .utils import dedup_by_url
 
-USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-)
+# ====== إعدادات HTTP خفيفة ======
+_UAS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17 Safari/605.1.15",
+]
+def _headers():
+    return {"User-Agent": random.choice(_UAS), "Accept-Language": "ar,en;q=0.8"}
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # /src
-CACHE_DIR = os.path.join(ROOT_DIR, "cache")
-os.makedirs(CACHE_DIR, exist_ok=True)
+def _norm(url: str) -> str:
+    if not url: return ""
+    return url.split("&ved=")[0].split("&ei=")[0]
 
-def _hash(s: str) -> str:
-    return hashlib.sha1(s.encode("utf-8", "ignore")).hexdigest()
+def _clean_text(s: str) -> str:
+    return re.sub(r"\s+", " ", (s or "").strip())
 
-def _cache_path(url: str) -> str:
-    return os.path.join(CACHE_DIR, f"{_hash(url)}.json")
-
-def _domain(u: str) -> str:
+# ====== DuckDuckGo (المصدر الأساسي) ======
+def _ddg_text(q: str, max_results: int = 10) -> List[Dict]:
     try:
-        return urlparse(u).netloc or ""
-    except Exception:
-        return ""
-
-def _looks_like_article(url: str) -> bool:
-    if any(url.lower().endswith(ext) for ext in (".jpg", ".png", ".gif", ".webp", ".svg", ".css", ".js")):
-        return False
-    if url.startswith("mailto:") or url.startswith("javascript:"):
-        return False
-    return True
-
-def _clean_text(html: str) -> Tuple[str, List[str], str]:
-    """يرجع (نص_نظيف, روابط_داخلية, عنوان)."""
-    soup = BeautifulSoup(html or "", "lxml")
-    for bad in soup(["script", "style", "noscript", "iframe"]):
-        bad.extract()
-    title = (soup.title.string.strip() if soup.title and soup.title.string else "")[:200]
-    text = re.sub(r"\s+", " ", soup.get_text(" ", strip=True))
-    links = []
-    for a in soup.find_all("a", href=True):
-        href = a["href"].strip()
-        if _looks_like_article(href):
-            links.append(href)
-    return text, links, title
-
-def _get(url: str, timeout: float) -> Optional[str]:
-    try:
-        r = requests.get(url, headers={"User-Agent": USER_AGENT}, timeout=timeout, allow_redirects=True)
-        if r.status_code == 200 and r.text:
-            return r.text
-    except Exception:
-        return None
-    return None
-
-def _fetch_page(url: str, deadline: float) -> Dict:
-    """يجلب الصفحة مع كاش بسيط (صلاحية 3 أيام)."""
-    url = url.strip()
-    cp = _cache_path(url)
-    # read cache
-    try:
-        if os.path.exists(cp) and (time.time() - os.path.getmtime(cp) < 3 * 24 * 3600):
-            with open(cp, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-
-    left = max(0.5, deadline - time.time())
-    html = _get(url, timeout=left)
-    if not html:
-        return {}
-
-    text, links, title = _clean_text(html)
-    out = {
-        "url": url,
-        "title": title or url,
-        "snippet": text[:800],
-        "links": links[:200],
-    }
-    try:
-        with open(cp, "w", encoding="utf-8") as f:
-            json.dump(out, f, ensure_ascii=False)
-    except Exception:
-        pass
-    return out
-
-# ============ محركات مجانية ============
-
-def _ddg_html(q: str, max_results: int = 12) -> List[Dict]:
-    """DuckDuckGo HTML (مجاني)."""
-    url = "https://duckduckgo.com/html/"
-    params = {"q": q, "kl": "xa-ar", "ia": "web"}
-    try:
-        r = requests.get(url, params=params, headers={"User-Agent": USER_AGENT}, timeout=8)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "lxml")
-        items = []
-        for a in soup.select("a.result__a"):
-            href = a.get("href", "")
-            if not href or not href.startswith("http"):
-                continue
-            title = a.get_text(" ", strip=True)
-            items.append({"title": title, "url": href})
-            if len(items) >= max_results:
-                break
-        return items
+        from duckduckgo_search import DDGS
+        out: List[Dict] = []
+        with DDGS() as ddgs:
+            for r in ddgs.text(q, region="xa-ar", max_results=max_results):
+                out.append({
+                    "title": r.get("title") or r.get("href") or "",
+                    "url": r.get("href") or "",
+                    "snippet": r.get("body") or "",
+                    "engine": "ddg",
+                })
+        return out
     except Exception:
         return []
 
-def _bing_html(q: str, max_results: int = 12) -> List[Dict]:
-    """Bing HTML (مجاني)."""
+# ====== Google (HTML خفيف – قد يفشل أحيانًا؛ لا يكسر التطبيق) ======
+def _google_text(q: str, max_results: int = 8) -> List[Dict]:
+    try:
+        url = "https://www.google.com/search"
+        params = {"q": q, "num": str(max_results), "hl": "ar", "safe": "active"}
+        r = requests.get(url, params=params, headers=_headers(), timeout=10)
+        if r.status_code != 200:
+            return []
+        soup = BeautifulSoup(r.text, "html.parser")
+        out: List[Dict] = []
+        for a in soup.select("a[href]"):
+            # الروابط داخل النتائج غالبًا داخل H3
+            h3 = a.find("h3")
+            if not h3: 
+                continue
+            href = a["href"]
+            if not href.startswith("http"):
+                continue
+            out.append({
+                "title": _clean_text(h3.get_text()),
+                "url": _norm(href),
+                "snippet": "",
+                "engine": "google",
+            })
+            if len(out) >= max_results:
+                break
+        return out
+    except Exception:
+        return []
+
+# ====== Bing (HTML خفيف) ======
+def _bing_text(q: str, max_results: int = 8) -> List[Dict]:
     try:
         url = "https://www.bing.com/search"
-        r = requests.get(url, params={"q": q}, headers={"User-Agent": USER_AGENT}, timeout=8)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, "lxml")
-        items = []
+        params = {"q": q, "count": str(max_results), "setlang": "ar"}
+        r = requests.get(url, params=params, headers=_headers(), timeout=10)
+        if r.status_code != 200:
+            return []
+        soup = BeautifulSoup(r.text, "html.parser")
+        out: List[Dict] = []
         for h2 in soup.select("li.b_algo h2"):
-            a = h2.find("a")
+            a = h2.find("a", href=True)
             if not a: 
                 continue
-            href = a.get("href", "")
-            if not href or not href.startswith("http"):
-                continue
-            title = a.get_text(" ", strip=True)
-            items.append({"title": title, "url": href})
-            if len(items) >= max_results:
+            out.append({
+                "title": _clean_text(a.get_text()),
+                "url": _norm(a["href"]),
+                "snippet": "",
+                "engine": "bing",
+            })
+            if len(out) >= max_results:
                 break
-        return items
+        return out
     except Exception:
         return []
 
-def _seed_results(q: str, include_prices: bool, limit: int = 12) -> List[Dict]:
-    q2 = q
-    if include_prices:
-        # إشارات للمتاجر (تزيد احتمال روابط أسعار)
-        q2 = f"{q} site:amazon.com OR site:aliexpress.com OR site:ebay.com OR site:noon.com OR site:alibaba.com"
-    seeds = _ddg_html(q2, max_results=limit)
-    if len(seeds) < 5:  # احتياط
-        seeds += _bing_html(q2, max_results=limit - len(seeds))
-    # إزالة التكرار
-    seen, out = set(), []
-    for it in seeds:
-        u = it.get("url")
-        if u and u not in seen:
-            seen.add(u)
-            out.append(it)
-    return out[:limit]
-
-# ============ البحث العميق ============
-
-def deep_search(
-    q: str,
-    include_prices: bool = False,
-    depth: int = 1,
-    max_pages: int = 10,
-    per_site_internal: int = 2,
-    time_budget_sec: float = 9.0,
-) -> List[Dict]:
-    """
-    depth=1: يقرأ الصفحات الأساسية فقط.
-    depth=2: من كل صفحة يزور حتى رابطين داخليين مهمّين من نفس النطاق.
-    """
-    q = (q or "").strip()
-    if not q:
+# ====== Wikipedia (API رسمي مجاني) ======
+def _wiki_hits(q: str, max_results: int = 5, lang: str = "ar") -> List[Dict]:
+    try:
+        api = f"https://{lang}.wikipedia.org/w/api.php"
+        params = {"action":"query","list":"search","format":"json","srsearch":q,"srlimit":str(max_results)}
+        r = requests.get(api, params=params, headers=_headers(), timeout=10)
+        js = r.json()
+        hits = js.get("query", {}).get("search", [])
+        out: List[Dict] = []
+        for h in hits:
+            title = h.get("title","")
+            url = f"https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}"
+            out.append({"title": title, "url": url, "snippet": _clean_text(h.get("snippet","")), "engine": "wikipedia"})
+        return out
+    except Exception:
         return []
 
-    deadline = time.time() + time_budget_sec
-    seeds = _seed_results(q, include_prices, limit=max_pages)
+# ====== تجميع النتائج مع إزالة التكرار ======
+def deep_search(q: str, include_prices: bool = False, limit_per_engine: int = 8) -> List[Dict]:
+    """
+    بحث متعدد المحركات (مجاني). دائمًا يعتمد DDG، ويحاول Google/Bing/ويكيبيديا
+    بدون كسر التطبيق إذا فشل أحدها.  include_prices يضيف استعلامات تسوّق بسيطة.
+    """
+    q = _clean_text(q)
     results: List[Dict] = []
-    visited = set()
 
-    # كلمات الاستعلام لمطابقة الروابط الداخلية
-    q_words = [w for w in re.findall(r"\w+", q.lower()) if len(w) > 2]
+    # DDG دائمًا أولًا (أكثر ثباتًا)
+    results += _ddg_text(q, max_results=limit_per_engine)
 
-    def push(item: Dict):
-        u = item.get("url")
-        if u and u not in visited:
-            visited.add(u)
-            results.append({"title": item.get("title") or u, "url": u, "snippet": item.get("snippet", "")})
+    # محركات أخرى (لا نعوّل عليها – فقط تعزيز)
+    results += _google_text(q, max_results=limit_per_engine // 2)
+    results += _bing_text(q, max_results=limit_per_engine // 2)
+    results += _wiki_hits(q, max_results=5)
 
-    # المرحلة 1: الصفحات الأساسية
-    for it in seeds:
-        if time.time() > deadline or len(results) >= max_pages:
-            break
-        url = it["url"]
-        page = _fetch_page(url, deadline)
-        if not page:
-            continue
-        push(page)
+    # بحث أسعار اختياري (بسيط – عبر DDG)
+    if include_prices:
+        for shop_q in [
+            f"site:alibaba.com {q}",
+            f"site:aliexpress.com {q}",
+            f"site:amazon.com {q}",
+            f"site:noon.com {q}",
+            f"site:souq.com {q}",
+        ]:
+            results += _ddg_text(shop_q, max_results=4)
 
-        # المرحلة 2: عمق داخلي (اختياري)
-        if depth >= 2:
-            base = url
-            base_dom = _domain(base)
-            picked = 0
-            for href in page.get("links", []):
-                if picked >= per_site_internal:
-                    break
-                try:
-                    abs_url = urljoin(base, href)
-                except Exception:
-                    continue
-                if _domain(abs_url) != base_dom:
-                    continue
-                if not _looks_like_article(abs_url):
-                    continue
-                # فلترة بسيطة بالاستعلام
-                if q_words and not any(w in abs_url.lower() for w in q_words):
-                    continue
-                if time.time() > deadline or len(results) >= max_pages:
-                    break
-                sub = _fetch_page(abs_url, deadline)
-                if not sub:
-                    continue
-                push(sub)
-                picked += 1
-
-    return results[:max_pages]
-
-# ============ بحث الأشخاص/اليوزرات ============
-
-_SOCIAL_SITES = [
-    "site:twitter.com", "site:x.com", "site:instagram.com", "site:facebook.com",
-    "site:t.me", "site:linkedin.com", "site:youtube.com", "site:snapchat.com",
-    "site:github.com", "site:tikTok.com", "site:threads.net"
-]
-
-def people_search(name: str, limit: int = 20) -> List[Dict]:
-    if not name:
-        return []
-    q = f'{name} {" OR ".join(_SOCIAL_SITES)}'
-    seeds = _ddg_html(q, max_results=limit)
-    if len(seeds) < 5:
-        seeds += _bing_html(q, max_results=limit - len(seeds))
     # إزالة التكرار
-    seen, out = set(), []
-    for it in seeds:
-        u = it.get("url")
-        if u and u not in seen:
-            seen.add(u)
-            out.append({"title": it.get("title") or u, "url": u})
-    return out[:limit]
+    results = dedup_by_url(results)
+    return results[:30]
+
+# ====== بحث أشخاص / يوزرات (روابط بروفايل) ======
+def people_search(name: str, max_results: int = 25) -> List[Dict]:
+    name = _clean_text(name)
+    # نستخدم DDG مع فلترة نطاقات السوشيال + بعض المواقع العامة
+    patterns = [
+        f'site:twitter.com "{name}"',
+        f'site:x.com "{name}"',
+        f'site:instagram.com "{name}"',
+        f'site:tiktok.com "{name}"',
+        f'site:facebook.com "{name}"',
+        f'site:linkedin.com "{name}"',
+        f'site:youtube.com "{name}"',
+        f'site:github.com "{name}"',
+        f'site:about.me "{name}"',
+    ]
+    out: List[Dict] = []
+    for p in patterns:
+        out += _ddg_text(p, max_results=5)
+        time.sleep(0.2)  # لطّف الطلبات قليلاً
+
+    out = dedup_by_url(out)
+    return out[:max_results]
