@@ -1,5 +1,3 @@
-# core/providers.py — quick price lookups via search URLs
-from typing import List, Dict
 from urllib.parse import quote_plus
 
 SITES = {
@@ -11,9 +9,28 @@ SITES = {
     "Amazon.ae": "https://www.amazon.ae/s?k={q}",
 }
 
-def price_lookup_grouped(query: str) -> List[Dict]:
-    q = quote_plus(query)
-    out = []
-    for name, tpl in SITES.items():
-        out.append({"site": name, "url": tpl.format(q=q)})
-    return out
+SOCIAL = {
+    "Google": "https://www.google.com/search?q={q}",
+    "Facebook": "https://www.facebook.com/search/top?q={q}",
+    "Twitter": "https://x.com/search?q={q}",
+    "Instagram": "https://www.instagram.com/explore/tags/{q}",
+    "LinkedIn": "https://www.linkedin.com/search/results/all/?keywords={q}",
+    "TikTok": "https://www.tiktok.com/search?q={q}",
+    "YouTube": "https://www.youtube.com/results?search_query={q}",
+}
+
+def price_lookup_grouped(query: str):
+    q = quote_plus(query); return [{"site": n, "url": u.format(q=q)} for n, u in SITES.items()]
+
+def profile_links(name: str):
+    q = quote_plus(name)
+    links = [{"site": n, "url": u.format(q=q)} for n, u in SOCIAL.items()]
+    # common username patterns
+    base = name.strip().replace(" ", "")
+    for site, fmt in [
+        ("Instagram (username)", f"https://www.instagram.com/{base}"),
+        ("Twitter (username)", f"https://x.com/{base}"),
+        ("GitHub (username)", f"https://github.com/{base}")
+    ]:
+        links.append({"site": site, "url": fmt})
+    return links
