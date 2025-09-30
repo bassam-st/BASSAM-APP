@@ -16,3 +16,10 @@ python-multipart==0.0.9
 pypdf==4.3.1
 Pillow==10.4.0
 lxml_html_clean
+
+# === إضافات جديدة ===
+deep-translator==1.11.4
+googletrans==4.0.0rc1
+pdfminer.six==20231228
+imagehash==4.3.1
+pytesseract==0.3.10
