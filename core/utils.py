@@ -60,3 +60,11 @@ def convert_arabic_numbers(text: str) -> str:
     if not text:
         return ""
     return "".join(_ARABIC_DIGITS.get(ch, ch) for ch in text)
+# ==== التحقق من أن النص عربي ====
+import re
+
+def is_arabic(text: str) -> bool:
+    """تتحقق إذا كان النص يحتوي على أحرف عربية"""
+    if not text:
+        return False
+    return bool(re.search(r'[\u0600-\u06FF]', text))
