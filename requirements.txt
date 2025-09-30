@@ -35,7 +35,7 @@ PyWavelets==1.9.0
 packaging==25.0
 pytesseract==0.3.13
 
-# Translation (بدون googletrans)
+# Translation 
 deep-translator==1.11.4
 pycountry==24.6.1
 nltk==3.9.1
