@@ -1,113 +1,82 @@
-# main.py — تطبيق بسام الذكي (بحث عميق + صور + PDF + تعلم تلقائي + PWA)
-from fastapi import FastAPI, Request, Form, File, UploadFile
+# main.py — بسام الذكي (بحث عميق + تعلم ذاتي + رفع صور و PDF + تلخيص)
+from fastapi import FastAPI, Form, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-import os, re, json, tempfile
-
-# ===== استيراد الوحدات الداخلية =====
-from core.utils import (
-    ensure_dirs,
-    extract_image_text,
-    convert_arabic_numbers,
-    normalize_text,
-    clean_html,
-)
-from core.summarizer import smart_summarize
-from core.search import deep_search, ddg_web
+from core.search import deep_search
+from core.utils import is_arabic, convert_arabic_numbers
 from core.services.learning import save_feedback, log_search, learn_from_sources
-from core.services.pdf_tools import extract_pdf_text
 
-# ===== إعداد التطبيق =====
-app = FastAPI(title="بسام الذكي — بحث عميق", version="2.0")
+import os, time, json, shutil
 
-# مجلدات ثابتة + قوالب
+app = FastAPI(title="Bassam الذكي", version="2.0")
+
+# ربط ملفات static و templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# إنشاء المجلدات اللازمة
-ensure_dirs(["static/uploads", "knowledge", "logs"])
+# المجلدات المؤقتة
+os.makedirs("uploads", exist_ok=True)
 
-# ===== الصفحة الرئيسية =====
+
 @app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
+def home(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-# ===== البحث العام =====
 @app.post("/search")
-async def search_route(q: str = Form(...), want_prices: bool = Form(False)):
-    """تنفيذ بحث عميق مع تلخيص ذكي"""
-    q_norm = normalize_text(q)
+async def search(q: str = Form(...), want_prices: bool = Form(False)):
+    start = time.time()
     try:
-        results = deep_search(q_norm, include_prices=want_prices)
-        summary = smart_summarize(" ".join(r["snippet"] for r in results))
-        log_search(q_norm, [r["url"] for r in results])
-save_feedback(q_norm, summary)  # (اختياري) خزّن الإجابة
-        return JSONResponse({"answer": summary, "sources": results})
+        q_norm = convert_arabic_numbers(q.strip())
+        summary, sources = await deep_search(q_norm, want_prices)
+        latency = round(time.time() - start, 2)
+
+        # الحفظ في سجل التعلم الذاتي
+        try:
+            save_feedback(q_norm, summary)  # ✅ تم تصحيح الخطأ هنا بإضافة except لاحقًا
+        except Exception as e:
+            print(f"[Feedback error] {e}")
+
+        return JSONResponse({
+            "answer": summary or "لم يتم العثور على نتيجة واضحة.",
+            "sources": sources,
+            "latency": latency
+        })
+
     except Exception as e:
-        return JSONResponse({"error": str(e)})
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# ===== رفع ملف PDF وفهرسته =====
 @app.post("/upload_pdf")
-async def upload_pdf(pdfFile: UploadFile = File(...)):
-    """يرفع ملف PDF ويستخرج نصه"""
+async def upload_pdf(pdfFile: UploadFile):
     try:
-        temp_path = f"static/uploads/{pdfFile.filename}"
-        with open(temp_path, "wb") as f:
-            f.write(await pdfFile.read())
-        text = extract_pdf_text(temp_path)
-        if not text.strip():
-            return JSONResponse({"result": "لم يتم العثور على نص في هذا الملف."})
-        # تخزين النص للتعلم الذاتي
-        learn_from_sources("pdf", text)
-        return JSONResponse({"result": "تم رفع الملف وتحليله بنجاح ✅"})
+        path = f"uploads/{pdfFile.filename}"
+        with open(path, "wb") as f:
+            shutil.copyfileobj(pdfFile.file, f)
+
+        learn_from_sources("PDF", path)
+        return JSONResponse({"msg": f"تمت فهرسة الملف: {pdfFile.filename}"})
+
     except Exception as e:
-        return JSONResponse({"error": str(e)})
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# ===== رفع صورة والبحث بالصور =====
 @app.post("/upload_image")
-async def upload_image(imgFile: UploadFile = File(...)):
-    """يرفع صورة ويبحث عن الصور المشابهة"""
+async def upload_image(imgFile: UploadFile):
     try:
-        temp_path = f"static/uploads/{imgFile.filename}"
-        with open(temp_path, "wb") as f:
-            f.write(await imgFile.read())
+        path = f"uploads/{imgFile.filename}"
+        with open(path, "wb") as f:
+            shutil.copyfileobj(imgFile.file, f)
 
-        # استخراج النص من الصورة
-        text = extract_image_text(temp_path)
-        if not text.strip():
-            return JSONResponse({"result": "لم يُستخرج أي نص من الصورة."})
+        learn_from_sources("صورة", path)
+        return JSONResponse({"msg": f"تم رفع الصورة: {imgFile.filename}"})
 
-        # بحث عميق بناءً على النص
-        results = deep_search(text, include_images=True)
-        learn_from_sources("image", text)
-        return JSONResponse({"text": text, "sources": results})
     except Exception as e:
-        return JSONResponse({"error": str(e)})
+        return JSONResponse({"error": str(e)}, status_code=500)
 
 
-# ===== تعلم من المستخدم =====
-@app.post("/feedback")
-async def feedback_route(query: str = Form(...), answer: str = Form(...)):
-    """يخزن التعلم الذاتي من المستخدم"""
-    try:
-        save_feedback(query, answer)
-        return JSONResponse({"result": "تم حفظ التعلم بنجاح ✅"})
-    except Exception as e:
-        return JSONResponse({"error": str(e)})
-
-
-# ===== فحص الصحة =====
 @app.get("/healthz")
-async def healthz():
-    return {"status": "ok", "version": "2.0"}
-
-
-# ===== التشغيل المحلي =====
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 8000)))
+def healthz():
+    return {"status": "ok"}
