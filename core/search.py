@@ -1,168 +1,255 @@
 # core/search.py
-# بحث عميق مجاني: DuckDuckGo + Google/Bing (scrape خفيف) + Wikipedia
+# ------------------------------------------------------------
+# بحث عميق + بحث أشخاص/يوزرات (مجاني وثابت على Render)
+# يعتمد DuckDuckGo + (اختياري) requests/BeautifulSoup لجلب مقتطفات
+# ------------------------------------------------------------
 from typing import List, Dict, Optional
-import time, random, re
-import requests
-from bs4 import BeautifulSoup
+import time, re, urllib.parse
+
+from duckduckgo_search import DDGS
+
+# اختياري: إن لم تتوفر هذه الحزم سيعمل الكود بدون جلب مقتطفات إضافية
+try:
+    import requests
+    from bs4 import BeautifulSoup
+except Exception:
+    requests = None
+    BeautifulSoup = None
+
+# دوال مساعدة من core/utils.py (موجود عندك)
 from .utils import dedup_by_url
 
-# ====== إعدادات HTTP خفيفة ======
-_UAS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17 Safari/605.1.15",
-]
-def _headers():
-    return {"User-Agent": random.choice(_UAS), "Accept-Language": "ar,en;q=0.8"}
-
-def _norm(url: str) -> str:
-    if not url: return ""
-    return url.split("&ved=")[0].split("&ei=")[0]
+# ----------------- أدوات داخلية خفيفة -----------------
 
 def _clean_text(s: str) -> str:
-    return re.sub(r"\s+", " ", (s or "").strip())
+    if not s:
+        return ""
+    return re.sub(r"\s+", " ", str(s)).strip()
 
-# ====== DuckDuckGo (المصدر الأساسي) ======
-def _ddg_text(q: str, max_results: int = 10) -> List[Dict]:
+def _tokens(s: str) -> List[str]:
+    return re.findall(r"[A-Za-z\u0600-\u06FF0-9_]+", s.lower())
+
+def _token_score(query: str, text: str) -> float:
+    """
+    قياس بسيط للتشابه (تقاطع الكلمات) — سريع وخفيف.
+    """
+    if not query or not text:
+        return 0.0
+    q = set(_tokens(query))
+    t = set(_tokens(text))
+    if not q or not t:
+        return 0.0
+    inter = len(q & t)
+    return inter / (len(q) ** 0.7)
+
+def _ddg_text(query: str, max_results: int = 6, region: str = "wt-wt", safesearch: str = "moderate") -> List[Dict]:
+    """
+    غلاف لنتائج DuckDuckGo (نرجع title/url/snippet)
+    """
+    out: List[Dict] = []
     try:
-        from duckduckgo_search import DDGS
-        out: List[Dict] = []
-        with DDGS() as ddgs:
-            for r in ddgs.text(q, region="xa-ar", max_results=max_results):
+        with DDGS(timeout=8) as ddgs:
+            for r in ddgs.text(query, region=region, safesearch=safesearch, max_results=max_results):
+                url = r.get("href") or r.get("url") or ""
+                if not url:
+                    continue
                 out.append({
-                    "title": r.get("title") or r.get("href") or "",
-                    "url": r.get("href") or "",
-                    "snippet": r.get("body") or "",
-                    "engine": "ddg",
+                    "title": _clean_text(r.get("title") or ""),
+                    "url": url,
+                    "snippet": _clean_text(r.get("body") or r.get("snippet") or "")
                 })
-        return out
     except Exception:
-        return []
+        pass
+    return out
 
-# ====== Google (HTML خفيف – قد يفشل أحيانًا؛ لا يكسر التطبيق) ======
-def _google_text(q: str, max_results: int = 8) -> List[Dict]:
+def _domain(url: str) -> str:
     try:
-        url = "https://www.google.com/search"
-        params = {"q": q, "num": str(max_results), "hl": "ar", "safe": "active"}
-        r = requests.get(url, params=params, headers=_headers(), timeout=10)
-        if r.status_code != 200:
-            return []
-        soup = BeautifulSoup(r.text, "html.parser")
-        out: List[Dict] = []
-        for a in soup.select("a[href]"):
-            # الروابط داخل النتائج غالبًا داخل H3
-            h3 = a.find("h3")
-            if not h3: 
-                continue
-            href = a["href"]
-            if not href.startswith("http"):
-                continue
-            out.append({
-                "title": _clean_text(h3.get_text()),
-                "url": _norm(href),
-                "snippet": "",
-                "engine": "google",
-            })
-            if len(out) >= max_results:
-                break
-        return out
+        return urllib.parse.urlparse(url).netloc.lower()
     except Exception:
-        return []
+        return ""
 
-# ====== Bing (HTML خفيف) ======
-def _bing_text(q: str, max_results: int = 8) -> List[Dict]:
-    try:
-        url = "https://www.bing.com/search"
-        params = {"q": q, "count": str(max_results), "setlang": "ar"}
-        r = requests.get(url, params=params, headers=_headers(), timeout=10)
-        if r.status_code != 200:
-            return []
-        soup = BeautifulSoup(r.text, "html.parser")
-        out: List[Dict] = []
-        for h2 in soup.select("li.b_algo h2"):
-            a = h2.find("a", href=True)
-            if not a: 
-                continue
-            out.append({
-                "title": _clean_text(a.get_text()),
-                "url": _norm(a["href"]),
-                "snippet": "",
-                "engine": "bing",
-            })
-            if len(out) >= max_results:
-                break
-        return out
-    except Exception:
-        return []
-
-# ====== Wikipedia (API رسمي مجاني) ======
-def _wiki_hits(q: str, max_results: int = 5, lang: str = "ar") -> List[Dict]:
-    try:
-        api = f"https://{lang}.wikipedia.org/w/api.php"
-        params = {"action":"query","list":"search","format":"json","srsearch":q,"srlimit":str(max_results)}
-        r = requests.get(api, params=params, headers=_headers(), timeout=10)
-        js = r.json()
-        hits = js.get("query", {}).get("search", [])
-        out: List[Dict] = []
-        for h in hits:
-            title = h.get("title","")
-            url = f"https://{lang}.wikipedia.org/wiki/{title.replace(' ', '_')}"
-            out.append({"title": title, "url": url, "snippet": _clean_text(h.get("snippet","")), "engine": "wikipedia"})
-        return out
-    except Exception:
-        return []
-
-# ====== تجميع النتائج مع إزالة التكرار ======
-def deep_search(q: str, include_prices: bool = False, limit_per_engine: int = 8) -> List[Dict]:
+def _fetch_snippet(url: str, timeout: int = 8) -> str:
     """
-    بحث متعدد المحركات (مجاني). دائمًا يعتمد DDG، ويحاول Google/Bing/ويكيبيديا
-    بدون كسر التطبيق إذا فشل أحدها.  include_prices يضيف استعلامات تسوّق بسيطة.
+    محاولة جلب مقتطف قصير من الصفحة نفسها — اختياري
+    لن يوقف التطبيق لو requests/bs4 غير متوفرين.
     """
-    q = _clean_text(q)
-    results: List[Dict] = []
+    if not requests or not BeautifulSoup:
+        return ""
+    try:
+        headers = {"User-Agent": "Mozilla/5.0 (BassamBot; +https://example.com)"}
+        r = requests.get(url, timeout=timeout, headers=headers)
+        if r.status_code != 200 or not r.text:
+            return ""
+        soup = BeautifulSoup(r.text, "html.parser")
+        # meta description أولاً
+        m = soup.find("meta", attrs={"name": "description"}) or soup.find("meta", attrs={"property": "og:description"})
+        if m and m.get("content"):
+            return _clean_text(m.get("content"))
+        # وإلا أول فقرة نصية
+        p = soup.find("p")
+        if p:
+            return _clean_text(p.get_text(" "))
+    except Exception:
+        pass
+    return ""
 
-    # DDG دائمًا أولًا (أكثر ثباتًا)
-    results += _ddg_text(q, max_results=limit_per_engine)
+# ----------------- بحث عام عميق -----------------
 
-    # محركات أخرى (لا نعوّل عليها – فقط تعزيز)
-    results += _google_text(q, max_results=limit_per_engine // 2)
-    results += _bing_text(q, max_results=limit_per_engine // 2)
-    results += _wiki_hits(q, max_results=5)
+_TRUSTED_BOOST = {
+    # مصادر عامة موثوقة
+    "wikipedia.org": 12,
+    "britannica.com": 9,
+    "stanford.edu": 9, "mit.edu": 9, "harvard.edu": 9, ".edu": 6,
+    ".gov": 9,
+    "nature.com": 8, "science.org": 8, "arxiv.org": 7,
+    "bbc.com": 7, "reuters.com": 7, "apnews.com": 6, "nytimes.com": 6,
+    "aljazeera.net": 7, "arabic.cnn.com": 6,
+    # أسواق (لما نطلب أسعار)
+    "amazon.com": 10, "amazon.sa": 10, "amazon.ae": 10,
+    "alibaba.com": 10, "aliexpress.com": 9,
+    "noon.com": 8, "jumia.com": 7, "souq.com": 7,
+}
 
-    # بحث أسعار اختياري (بسيط – عبر DDG)
+def _domain_boost(url: str, include_prices: bool) -> int:
+    d = _domain(url)
+    score = 0
+    for key, val in _TRUSTED_BOOST.items():
+        if key.startswith("."):
+            if d.endswith(key):
+                score = max(score, val)
+        else:
+            if key in d:
+                score = max(score, val)
+    # لو ما نبغى أسعار، لا نرفع أسواق
+    if not include_prices and any(k in d for k in ["amazon", "alibaba", "aliexpress", "noon", "souq", "jumia"]):
+        score = 0
+    return score
+
+def deep_search(query: str, include_prices: bool = False, max_results: int = 36) -> List[Dict]:
+    """
+    بحث عام قوي:
+    - يصنع استعلامات متعددة (عام + موسوعات + أسئلة/كيف + أسواق إن طُلِب)
+    - يجمع نتائج كثيرة ثم يرتبها: (تشابه الكلمات + أولوية الدومين) مع إزالة التكرارات
+    - يحاول استكمال المقتطف عند الحاجة
+    """
+    q = _clean_text(query)
+    if not q:
+        return []
+
+    queries: List[str] = [
+        q,
+        f"{q} معلومات",
+        f"{q} شرح",
+        f"{q} تعريف",
+        f"{q} ماذا يعني",
+        f"site:wikipedia.org {q}",
+        f"site:britannica.com {q}",
+        f"site:stackoverflow.com {q}";  # مفيد للبرمجة
+    ]
+
+    # أسئلة/كيف/أفضل
+    if len(_tokens(q)) <= 6:
+        queries += [f"ما هو {q}", f"كيف {q}", f"أفضل {q}"]
+
+    # أسواق — فقط إذا طلب المستخدم
     if include_prices:
-        for shop_q in [
-            f"site:alibaba.com {q}",
-            f"site:aliexpress.com {q}",
-            f"site:amazon.com {q}",
-            f"site:noon.com {q}",
-            f"site:souq.com {q}",
-        ]:
-            results += _ddg_text(shop_q, max_results=4)
+        markets = ["amazon.com", "amazon.sa", "amazon.ae", "alibaba.com", "aliexpress.com", "noon.com", "jumia.com", "souq.com"]
+        for m in markets:
+            queries.append(f"site:{m} {q}")
+
+    results: List[Dict] = []
+    for i, qq in enumerate(queries):
+        # لكل استعلام نأخذ كمية صغيرة لتجنب الحظر
+        batch = _ddg_text(qq, max_results=6)
+        results.extend(batch)
+        time.sleep(0.15)
 
     # إزالة التكرار
     results = dedup_by_url(results)
-    return results[:30]
 
-# ====== بحث أشخاص / يوزرات (روابط بروفايل) ======
-def people_search(name: str, max_results: int = 25) -> List[Dict]:
+    # اكتمال المقتطفات (اختياري) — فقط لعدد قليل من الأعلى لاحقاً
+    for r in results[:12]:
+        if not r.get("snippet"):
+            sn = _fetch_snippet(r["url"])
+            if sn:
+                r["snippet"] = sn
+
+    # ترتيب ذكي
+    def _score(item: Dict) -> float:
+        title = item.get("title") or ""
+        snip = item.get("snippet") or ""
+        sim = 1.0 * _token_score(q, f"{title} {snip}")
+        dom_bonus = 0.6 * _domain_boost(item.get("url") or "", include_prices)
+        title_bonus = 0.4 if _token_score(q, title) > 0 else 0.0
+        return sim + dom_bonus + title_bonus
+
+    results = sorted(results, key=_score, reverse=True)
+    return results[:max_results]
+
+# ----------------- بحث أشخاص / يوزرات -----------------
+
+_SOCIAL_ORDER = [
+    "twitter.com", "x.com", "instagram.com", "tiktok.com", "facebook.com",
+    "linkedin.com", "youtube.com", "github.com", "snapchat.com",
+    "pinterest.com", "twitch.tv", "threads.net", "medium.com", "about.me"
+]
+
+def people_search(name: str, max_results: int = 40) -> List[Dict]:
+    """
+    بحث مركّز للأشخاص/اليوزرات:
+    - يبني استعلامات لكل منصات السوشيال
+    - لو كاتب @username يتعامل معها كيوزر مباشرة
+    - يزيل التكرار ويرتب بحيث الأقرب للمطلوب أعلى
+    """
     name = _clean_text(name)
-    # نستخدم DDG مع فلترة نطاقات السوشيال + بعض المواقع العامة
-    patterns = [
-        f'site:twitter.com "{name}"',
-        f'site:x.com "{name}"',
-        f'site:instagram.com "{name}"',
-        f'site:tiktok.com "{name}"',
-        f'site:facebook.com "{name}"',
-        f'site:linkedin.com "{name}"',
-        f'site:youtube.com "{name}"',
-        f'site:github.com "{name}"',
-        f'site:about.me "{name}"',
-    ]
+    if not name:
+        return []
+
+    patterns: List[str] = []
+    if name.startswith("@"):
+        uname = name[1:]
+        for d in _SOCIAL_ORDER:
+            patterns.append(f"site:{d} {uname}")
+            patterns.append(f"site:{d} \"{uname}\"")
+    else:
+        q_name = f"\"{name}\"" if " " in name and not name.startswith("\"") else name
+        for d in _SOCIAL_ORDER:
+            patterns.append(f"site:{d} {q_name}")
+            patterns.append(f"site:{d} profile {q_name}")
+            patterns.append(f"site:{d} @{name}")
+
     out: List[Dict] = []
     for p in patterns:
-        out += _ddg_text(p, max_results=5)
-        time.sleep(0.2)  # لطّف الطلبات قليلاً
+        out += _ddg_text(p, max_results=4)
+        time.sleep(0.12)
 
     out = dedup_by_url(out)
+
+    # ترجيح حسب المنصة + تطابق الاسم/اليوزر
+    def _rank(item: Dict) -> float:
+        url = (item.get("url") or "").lower()
+        title = item.get("title") or ""
+        snip = item.get("snippet") or ""
+
+        # أولوية المنصّات
+        base = len(_SOCIAL_ORDER) + 5
+        for i, d in enumerate(_SOCIAL_ORDER):
+            if d in url:
+                base = i  # كلما أقل كان أفضل
+                break
+
+        # لو كان المستخدم كتب @يوزر وظهر حرفياً في المسار -> مكافأة كبيرة
+        bonus = 0.0
+        if name.startswith("@"):
+            uname = name[1:].lower()
+            if f"/{uname}" in url or uname in url:
+                bonus += 6.0
+
+        # تشابه الاسم في العنوان/المقتطف
+        sim = 5.0 * _token_score(name, f"{title} {snip}")
+
+        # نحول “أولوية المنصّات” إلى قيمة كبيرة (مقلوبة) ثم نضيف البونص والتشابه
+        return -(base) + bonus + sim
+
+    out = sorted(out, key=_rank, reverse=True)
     return out[:max_results]
