@@ -1,21 +1,34 @@
-# core/arabic_text.py
-from __future__ import annotations
-import re
+# core/summarizer.py — summary + auto-translate to Arabic
+from typing import List, Dict
+from sumy.parsers.plaintext import PlainTextParser
+from sumy.nlp.tokenizers import Tokenizer
+from sumy.summarizers.text_rank import TextRankSummarizer
+from .arabic_text import to_arabic
 
-_AR_DIAC = re.compile(r"[\u0617-\u061A\u064B-\u0652\u0670\u06D6-\u06ED]")
-_PUNCT = re.compile(r"[^\w\s\u0600-\u06FF]+")
+def _sumy(text: str, sentences: int = 5) -> str:
+    parser = PlainTextParser.from_string(text, Tokenizer("english"))
+    summ = TextRankSummarizer()
+    sents = summ(parser.document, sentences)
+    return " ".join(str(s) for s in sents)
 
-def normalize_ar(text: str) -> str:
-    text = _AR_DIAC.sub("", text)             # إزالة التشكيل
-    text = text.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
-    text = text.replace("ى", "ي").replace("ة", "ه")
-    text = _PUNCT.sub(" ", text)
-    return re.sub(r"\s+", " ", text).strip()
+def smart_summarize(passages: List[Dict], query: str, max_chars: int = 3500) -> Dict:
+    if not passages:
+        return {"ar_answer": to_arabic("لم أجد محتوى كافياً."), "raw": ""}
 
-def is_arabic(text: str) -> bool:
-    return bool(re.search(r"[\u0600-\u06FF]", text))
+    # نجمع أهم المقاطع (الأولى عادةً أفضل)
+    txt = ""
+    for p in passages:
+        if len(txt) > max_chars: break
+        piece = p.get("text","")
+        if piece:
+            txt += piece.strip() + "\n"
 
-def split_sentences(text: str) -> list[str]:
-    # فصل جُمَل بسيط
-    parts = re.split(r"(?<=[\.!\؟\!])\s+|\n+", text)
-    return [p.strip() for p in parts if p.strip()]
+    # ملخص إنجليزي/عام ثم ترجمة للعربية
+    try:
+        raw = _sumy(txt, sentences=6)
+        if len(raw) < 150: raw = txt[:1200]
+    except Exception:
+        raw = txt[:1200]
+
+    ar = to_arabic(raw)
+    return {"ar_answer": ar, "raw": raw}
