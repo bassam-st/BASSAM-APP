@@ -46,3 +46,17 @@ def extract_image_text(path: str) -> str:
     except Exception as e:
         print(f"[OCR ERROR] {e}")
         return ""
+# ==== تحويل الأرقام العربية إلى إنجليزية (لتحليل النصوص بسهولة) ====
+
+_ARABIC_DIGITS = {
+    "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
+    "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
+    "۰": "0", "۱": "1", "۲": "2", "۳": "3", "۴": "4",
+    "۵": "5", "۶": "6", "۷": "7", "۸": "8", "۹": "9",
+}
+
+def convert_arabic_numbers(text: str) -> str:
+    """تحوّل الأرقام العربية أو الفارسية إلى أرقام إنجليزية"""
+    if not text:
+        return ""
+    return "".join(_ARABIC_DIGITS.get(ch, ch) for ch in text)
