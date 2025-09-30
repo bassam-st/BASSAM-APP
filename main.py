@@ -1,134 +1,161 @@
-# main.py — تطبيق بسام الذكي (نسخة Render مستقرة)
-from fastapi import FastAPI, Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+# main.py — Bassam APP (FastAPI) ready for Render
+import os, time, tempfile, pathlib
+from typing import Optional, List, Dict
 
+from fastapi import FastAPI, Request, Form, UploadFile, File
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
+from starlette.templating import Jinja2Templates
+
+# لبّ التطبيق (التي أرسلناها سابقًا)
 from core.search import deep_search
 from core.summarizer import smart_summarize
-from core.utils import extract_image_text, extract_pdf_text
-from core.services.learning import save_feedback, log_search
+from core.utils import extract_pdf_text, extract_image_text
 
-import os
+# ------------- إعدادات أساسية -------------
+APP_NAME = "Bassam APP"
+BASE_DIR = pathlib.Path(__file__).parent.resolve()
+TEMPLATES_DIR = BASE_DIR / "templates"
+STATIC_DIR = BASE_DIR / "static"
 
-# إنشاء التطبيق
-app = FastAPI(title="Bassam الذكي", version="3.1")
+app = FastAPI(title=APP_NAME)
 
-# ربط ملفات الواجهة
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"],
+)
 
+# Static & templates
+if STATIC_DIR.exists():
+    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
 
-# ===== الصفحة الرئيسية =====
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+# ------------- أدوات صغيرة -------------
+def _take_json(req: Request) -> Dict:
+    """يحاول قراءة JSON وإذا فشل يرجّع {}"""
+    try:
+        return {} if req is None else (req.json() if isinstance(req, dict) else {})
+    except Exception:
+        return {}
 
+async def _get_json_body(request: Request) -> Dict:
+    try:
+        return await request.json()
+    except Exception:
+        return {}
 
-# ===== اختبار الصحة =====
+def _summarize_from_sources(sources: List[Dict], fallback: str = "") -> str:
+    if not sources:
+        return fallback or "لم أعثر على نتائج."
+    # اجمع مقتطفات للملخّص
+    big_text = " ".join((s.get("snippet", "") or "") for s in sources)[:8000]
+    ans = smart_summarize(big_text, max_sentences=5).strip()
+    if not ans:
+        ans = fallback or "تم العثور على مصادر، لكن لم أستطع إنشاء ملخّص."
+    return ans
+
+# ------------- مسارات -------------
 @app.get("/healthz")
-async def healthz():
+def healthz():
     return {"status": "ok"}
 
+@app.get("/", response_class=HTMLResponse)
+def index(request: Request):
+    # يحمّل templates/index.html الموجودة لديك
+    return templates.TemplateResponse("index.html", {"request": request, "app_name": APP_NAME})
 
-# ===== دالة البحث =====
 @app.post("/search")
-async def search_route(request: Request, q: str = Form(None), want_prices: bool = Form(False)):
+async def search_endpoint(
+    request: Request,
+    q: Optional[str] = Form(None),
+    want_prices: Optional[bool] = Form(False),
+):
     """
-    نقطة البحث الأساسية — تدعم Form أو JSON
+    يقبل JSON أو Form:
+    JSON: {"q": "...", "want_prices": true}
+    Form:  q=...&want_prices=false
     """
+    t0 = time.time()
     try:
-        # جلب البيانات سواء كانت Form أو JSON
-        if q is None:
-            try:
-                data = await request.json()
-                q = data.get("q", "")
-                want_prices = data.get("want_prices", False)
-            except Exception:
-                q = ""
+        # لو لم يصل q من الـ Form، جرّب JSON
+        if not q:
+            body = await _get_json_body(request)
+            q = (body.get("q") or "").strip()
+            want_prices = bool(body.get("want_prices") or False)
 
-        query = (q or "").strip()
-        if not query:
-            return JSONResponse({"answer": "", "sources": []})
+        q = (q or "").strip()
+        if not q:
+            return JSONResponse({"error": "query_is_empty"}, status_code=400)
 
-        # تنفيذ البحث
-        results = deep_search(query, include_prices=want_prices)
+        # بحث متعدد المحركات (حسب المفاتيح المتوفرة) + DDG دائمًا
+        sources = deep_search(q, include_prices=bool(want_prices))
+        # إنشاء إجابة مختصرة
+        answer = _summarize_from_sources(sources, fallback="تم العثور على نتائج. راجع الروابط بالأسفل.")
+        # رتّب المصادر البسيطة للواجهة
+        src_out = [{"title": s.get("title") or s.get("url"), "url": s.get("url")} for s in sources][:12]
 
-        # تلخيص النتائج
-        corpus = " ".join(r.get("snippet", "") for r in results)
-        summary = smart_summarize(corpus, max_sentences=5) if corpus else ""
-
-        # حفظ سجل التعلم (اختياري)
-        try:
-            log_search(query, [r["url"] for r in results])
-            save_feedback(query, summary)
-        except Exception as e:
-            print(f"[LEARNING ERROR] {e}")
-
-        return JSONResponse({
-            "answer": summary or "لم أجد إجابة دقيقة الآن، حاول بعبارة أخرى.",
-            "sources": results
-        })
-
+        return {
+            "ok": True,
+            "latency_ms": int((time.time()-t0)*1000),
+            "answer": answer,
+            "sources": src_out
+        }
     except Exception as e:
         print(f"[SEARCH ERROR] {e}")
-        return JSONResponse({"error": "حدث خطأ في البحث"}, status_code=500)
+        return JSONResponse({"ok": False, "error": "search_failed"}, status_code=500)
 
-
-# ===== رفع ملفات PDF =====
-@app.post("/upload/pdf")
+@app.post("/upload_pdf")
 async def upload_pdf(file: UploadFile = File(...)):
     """
-    يرفع ملف PDF ويفهرسه
+    يقرأ PDF ويُرجع أول 1000 حرف + يمكنك لاحقًا فهرسته داخليًا إذا رغبت.
     """
     try:
-        path = f"uploads/{file.filename}"
-        os.makedirs("uploads", exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(await file.read())
+        suffix = pathlib.Path(file.filename).suffix or ".pdf"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            data = await file.read()
+            tmp.write(data)
+            tmp_path = tmp.name
 
-        text = extract_pdf_text(path)
-        if not text.strip():
-            return JSONResponse({"msg": "لم يتم العثور على نص في الملف."})
-
-        return JSONResponse({"msg": "تم رفع الملف وفهرسته بنجاح", "text": text[:1000]})
+        text = extract_pdf_text(tmp_path) or ""
+        os.unlink(tmp_path)
+        return {
+            "ok": True,
+            "chars": len(text),
+            "preview": text[:1000]
+        }
     except Exception as e:
-        print(f"[PDF ERROR] {e}")
-        return JSONResponse({"msg": "حدث خطأ أثناء رفع الملف."}, status_code=500)
+        print(f"[PDF UPLOAD ERROR] {e}")
+        return JSONResponse({"ok": False, "error": "pdf_extract_failed"}, status_code=500)
 
-
-# ===== رفع الصور للبحث =====
-@app.post("/upload/image")
+@app.post("/upload_image")
 async def upload_image(file: UploadFile = File(...)):
     """
-    يرفع صورة ويستخرج النص منها للبحث
+    يقرأ صورة ويجري OCR بسيط، ثم يعيد النص المستخرج.
+    (يمكنك لاحقًا تمرير النص إلى deep_search لإجراء بحث بالصورة).
     """
     try:
-        path = f"uploads/{file.filename}"
-        os.makedirs("uploads", exist_ok=True)
-        with open(path, "wb") as f:
-            f.write(await file.read())
+        suffix = pathlib.Path(file.filename).suffix or ".png"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            data = await file.read()
+            tmp.write(data)
+            tmp_path = tmp.name
 
-        text = extract_image_text(path)
-        if not text.strip():
-            return JSONResponse({"msg": "لم يتم العثور على نص في الصورة."})
+        text = extract_image_text(tmp_path) or ""
+        os.unlink(tmp_path)
 
-        return JSONResponse({"msg": "تم استخراج النص من الصورة بنجاح", "text": text})
+        # خيار: ابحث بالنص المستخرج
+        sources = deep_search(text) if text else []
+        answer = _summarize_from_sources(sources, fallback=text or "لم أجد نصًا واضحًا في الصورة.")
+        src_out = [{"title": s.get("title") or s.get("url"), "url": s.get("url")} for s in sources][:10]
+
+        return {
+            "ok": True,
+            "ocr_text": text,
+            "answer": answer,
+            "sources": src_out
+        }
     except Exception as e:
-        print(f"[IMAGE ERROR] {e}")
-        return JSONResponse({"msg": "حدث خطأ أثناء تحليل الصورة."}, status_code=500)
-
-
-# ===== البحث عن أشخاص / يوزرات =====
-@app.post("/search/users")
-async def search_users(request: Request, name: str = Form(...)):
-    """
-    بحث عن أشخاص / يوزرات (بشكل مبدئي يستخدم بحث الويب)
-    """
-    try:
-        query = f"{name} site:linkedin.com OR site:twitter.com OR site:facebook.com"
-        results = deep_search(query)
-        return JSONResponse({"users": results})
-    except Exception as e:
-        print(f"[USER SEARCH ERROR] {e}")
-        return JSONResponse({"error": "حدث خطأ في البحث عن الأشخاص."}, status_code=500)
+        print(f"[IMG UPLOAD ERROR] {e}")
+        return JSONResponse({"ok": False, "error": "image_process_failed"}, status_code=500)
