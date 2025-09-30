@@ -1,259 +1,106 @@
-"""
-وحدة البحث والتلخيص
-البحث عبر DuckDuckGo مع تلخيص المحتوى باستخدام SUMY و BM25
-"""
+# core/search.py — meta search + fetch + mini-RAG
+from typing import List, Dict, Optional
+import time, re, os, math, html, requests
+from urllib.parse import urlparse
+from bs4 import BeautifulSoup
+from readability import Document
+from duckduckgo_search import DDGS
 
-import httpx
-import re
-from typing import Dict, List, Optional, Any
-try:
-    from ddgs import DDGS
-except ImportError:
-    from duckduckgo_search import DDGS
-from core.utils import is_arabic, clean_html, normalize_text
-from core.advanced_intelligence import AdvancedIntelligence
+from .arabic_text import is_arabic, strip_html_preserve_lines
+from .utils import dedup_by_url, clamp, simple_md_search
 
-# استيراد مكتبات التلخيص
-try:
-    from sumy.parsers.plaintext import PlaintextParser
-    from sumy.nlp.tokenizers import Tokenizer
-    from sumy.summarizers.lsa import LsaSummarizer
-    from sumy.nlp.stemmers import Stemmer
-    SUMY_AVAILABLE = True
-except ImportError:
-    SUMY_AVAILABLE = False
-    PlaintextParser = None
-    Tokenizer = None
-    LsaSummarizer = None
-    Stemmer = None
+HEADERS = {"User-Agent": "Mozilla/5.0 (BassamBot; +bassam-app)"}
 
-try:
-    from rank_bm25 import BM25Okapi
-    from rapidfuzz import fuzz
-    BM25_AVAILABLE = True
-except ImportError:
-    BM25_AVAILABLE = False
-    BM25Okapi = None
+PREFERRED_AR_SITES = [
+    "wikipedia.org", "ar.wikipedia.org", "mawdoo3.com", "aljazeera.net",
+    "alarabiya.net", "cnn.com", "bbc.com/arabic", "almrsal.com",
+]
 
-class SearchEngine:
-    def __init__(self):
-        self.ddgs = DDGS()
-        self.session = httpx.Client(
-            headers={"User-Agent": "BassamBot/1.0"},
-            timeout=30.0
-        )
-        self.intelligence = AdvancedIntelligence()  # إضافة الذكاء المتقدم
-    
-    def search_web(self, query: str, max_results: int = 10) -> List[Dict]:
-        """البحث في الويب باستخدام DuckDuckGo"""
-        try:
-            results = []
-            # تجربة البحث العربي أولاً
-            if is_arabic(query):
-                # إضافة كلمات مساعدة للبحث العربي
-                enhanced_query = f"{query} معلومات عربي"
-                try:
-                    ddgs_results = self.ddgs.text(enhanced_query, max_results=max_results)
-                    if ddgs_results:
-                        for result in ddgs_results:
-                            results.append({
-                                'title': result.get('title', ''),
-                                'body': result.get('body', ''),
-                                'href': result.get('href', ''),
-                                'source': 'duckduckgo'
-                            })
-                    
-                    # إذا لم نجد نتائج كافية، جرب البحث الأصلي
-                    if len(results) < 3:
-                        ddgs_results_original = self.ddgs.text(query, max_results=max_results)
-                        for result in ddgs_results_original:
-                            if not any(r['href'] == result.get('href') for r in results):
-                                results.append({
-                                    'title': result.get('title', ''),
-                                    'body': result.get('body', ''),
-                                    'href': result.get('href', ''),
-                                    'source': 'duckduckgo'
-                                })
-                except Exception:
-                    # في حالة فشل البحث المحسن، استخدم البحث الأصلي
-                    ddgs_results = self.ddgs.text(query, max_results=max_results)
-                    for result in ddgs_results:
-                        results.append({
-                            'title': result.get('title', ''),
-                            'body': result.get('body', ''),
-                            'href': result.get('href', ''),
-                            'source': 'duckduckgo'
-                        })
-            else:
-                # البحث الإنجليزي العادي
-                ddgs_results = self.ddgs.text(query, max_results=max_results)
-                for result in ddgs_results:
-                    results.append({
-                        'title': result.get('title', ''),
-                        'body': result.get('body', ''),
-                        'href': result.get('href', ''),
-                        'source': 'duckduckgo'
-                    })
-            
-            return results
-        except Exception as e:
-            print(f"❌ خطأ في البحث: {e}")
-            return []
-    
-    def search_images(self, query: str, max_results: int = 10) -> List[Dict]:
-        """البحث عن الصور"""
-        try:
-            results = []
-            ddgs_results = self.ddgs.images(query, max_results=max_results)
-            
-            for result in ddgs_results:
-                results.append({
-                    'title': result.get('title', ''),
-                    'image': result.get('image', ''),
-                    'thumbnail': result.get('thumbnail', ''),
-                    'url': result.get('url', ''),
-                    'source': result.get('source', '')
-                })
-            
-            return results
-        except Exception as e:
-            print(f"خطأ في البحث عن الصور: {e}")
-            return []
-    
-    def fetch_page_content(self, url: str) -> Optional[str]:
-        """جلب محتوى الصفحة"""
-        try:
-            response = self.session.get(url)
-            response.raise_for_status()
-            
-            # تنظيف HTML بشكل أساسي
-            content = clean_html(response.text)
-            return content[:5000]  # تحديد الحجم
-            
-        except Exception as e:
-            print(f"خطأ في جلب المحتوى من {url}: {e}")
-            return None
-    
-    def summarize_with_sumy(self, text: str, sentences_count: int = 3) -> str:
-        """تلخيص النص باستخدام SUMY"""
-        if not SUMY_AVAILABLE or not text:
-            return text[:500] + "..." if len(text) > 500 else text
-        
-        try:
-            # تحديد اللغة
-            language = "arabic" if is_arabic(text) else "english"
-            
-            # التحقق من توفر المكتبات
-            if not (PlaintextParser and Tokenizer and LsaSummarizer and Stemmer):
-                return text[:500] + "..." if len(text) > 500 else text
-            
-            # إنشاء المحلل والملخص
-            parser = PlaintextParser.from_string(text, Tokenizer(language))
-            stemmer = Stemmer(language)
-            summarizer = LsaSummarizer(stemmer)
-            
-            # تلخيص النص
-            summary = summarizer(parser.document, sentences_count)
-            summary_text = " ".join([str(sentence) for sentence in summary])
-            
-            return summary_text if summary_text else text[:500]
-            
-        except Exception as e:
-            print(f"خطأ في التلخيص: {e}")
-            return text[:500] + "..." if len(text) > 500 else text
-    
-    def rank_results_bm25(self, query: str, results: List[Dict]) -> List[Dict]:
-        """ترتيب النتائج باستخدام BM25"""
-        if not BM25_AVAILABLE or not results:
-            return results
-        
-        try:
-            # التحقق من توفر مكتبة BM25
-            if not BM25Okapi:
-                return results
-                
-            # تحضير النصوص للترتيب
-            documents = []
-            for result in results:
-                text = f"{result.get('title', '')} {result.get('body', '')}"
-                documents.append(normalize_text(text).split())
-            
-            if not documents:
-                return results
-            
-            # إنشاء نموذج BM25
-            bm25 = BM25Okapi(documents)
-            query_tokens = normalize_text(query).split()
-            
-            # حساب النقاط
-            scores = bm25.get_scores(query_tokens)
-            
-            # ترتيب النتائج
-            ranked_results = []
-            for i, score in enumerate(scores):
-                result = results[i].copy()
-                result['bm25_score'] = score
-                ranked_results.append(result)
-            
-            # ترتيب حسب النقاط
-            ranked_results.sort(key=lambda x: x.get('bm25_score', 0), reverse=True)
-            
-            return ranked_results
-            
-        except Exception as e:
-            print(f"خطأ في ترتيب النتائج: {e}")
-            return results
-    
-    def search_and_summarize(self, query: str, max_results: int = 5) -> Dict[str, Any]:
-        """البحث والتلخيص الذكي"""
-        try:
-            # البحث
-            results = self.search_web(query, max_results)
-            
-            if not results:
-                return {
-                    'query': query,
-                    'summary': 'لم يتم العثور على نتائج.',
-                    'results': [],
-                    'total_results': 0
-                }
-            
-            # ترتيب النتائج
-            ranked_results = self.rank_results_bm25(query, results)
-            
-            # تحضير النص للتلخيص
-            all_content = []
-            processed_results = []
-            
-            for result in ranked_results[:3]:  # أفضل 3 نتائج
-                content = f"{result.get('title', '')} {result.get('body', '')}"
-                all_content.append(content)
-                processed_results.append({
-                    'title': result.get('title', ''),
-                    'snippet': result.get('body', '')[:200] + "...",
-                    'url': result.get('href', ''),
-                    'score': result.get('bm25_score', 0)
-                })
-            
-            # تلخيص المحتوى
-            combined_text = " ".join(all_content)
-            summary = self.summarize_with_sumy(combined_text, sentences_count=4)
-            
-            return {
-                'query': query,
-                'summary': summary,
-                'results': processed_results,
-                'total_results': len(results)
-            }
-            
-        except Exception as e:
-            print(f"خطأ في البحث والتلخيص: {e}")
-            return {
-                'query': query,
-                'summary': f'حدث خطأ أثناء البحث: {str(e)}',
-                'results': [],
-                'total_results': 0
-            }
+def ddg_web(query: str, max_results: int = 10) -> List[Dict]:
+    # نستخدم DDGS لأنه مجاني وخفيف
+    hits: List[Dict] = []
+    try:
+        with DDGS() as ddgs:
+            for r in ddgs.text(query, max_results=max_results, region="wt-wt", safesearch="moderate"):
+                if not r: continue
+                url = r.get("href") or r.get("url")
+                title = r.get("title") or ""
+                body  = r.get("body") or ""
+                if url:
+                    hits.append({"title": title, "url": url, "snippet": body})
+    except Exception:
+        pass
+    return hits
 
-# إنشاء مثيل عام
-search_engine = SearchEngine()
+def score_hit(hit: Dict, query: str) -> float:
+    url = hit["url"]
+    host = urlparse(url).netloc.lower()
+    s = 0.0
+    if any(site in host for site in PREFERRED_AR_SITES): s += 2.0
+    if is_arabic(hit.get("title","") + hit.get("snippet","")): s += 1.0
+    if re.search(re.escape(query), (hit.get("title","") + hit.get("snippet","")), re.I): s += 0.5
+    return s
+
+def fetch_clean(url: str, timeout: int = 12) -> str:
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=timeout)
+        r.raise_for_status()
+        html_doc = r.text
+        # readability لاستخراج المقال
+        doc = Document(html_doc)
+        article_html = doc.summary()
+        text = strip_html_preserve_lines(article_html)
+        if len(text) < 400:
+            # احتياط: نجمع نص الصفحة مباشرة
+            soup = BeautifulSoup(html_doc, "html.parser")
+            text = strip_html_preserve_lines(str(soup))
+        return text[:12000]  # نحمي الذاكرة
+    except Exception:
+        return ""
+
+def gather_passages(hits: List[Dict], top_k: int = 6) -> List[Dict]:
+    passages = []
+    for h in hits[:top_k]:
+        txt = fetch_clean(h["url"])
+        if not txt: continue
+        passages.append({"url": h["url"], "text": txt})
+    return passages
+
+def rag_from_data_folder(query: str, folder: str = "data") -> List[Dict]:
+    """بحث مفتاحي بسيط داخل ملفات ماركداون/تكست التي في data/"""
+    if not os.path.isdir(folder): return []
+    matches = simple_md_search(folder, query, max_files=30, max_chars=8000)
+    return [{"url": f"file://{p}", "text": t} for p, t in matches]
+
+def detect_lang(text: str) -> str:
+    return "ar" if is_arabic(text) else "xx"
+
+def deep_search(query: str, max_sources: int = 6, force_lang: Optional[str] = None) -> Dict:
+    t0 = time.time()
+    hits = ddg_web(query, max_results=max_sources*2)
+    hits = sorted(hits, key=lambda h: score_hit(h, query), reverse=True)
+    hits = dedup_by_url(hits)
+    passages = gather_passages(hits, top_k=max_sources)
+
+    # دمج RAG محلي
+    local_passages = rag_from_data_folder(query)
+    passages = (passages + local_passages)[:max_sources+4]
+
+    sources = []
+    for h in hits[:max_sources]:
+        host = urlparse(h["url"]).netloc
+        sources.append({
+            "title": h.get("title",""),
+            "url": h["url"],
+            "site": host,
+            "lang": "ar" if is_arabic(h.get("title","")+h.get("snippet","")) else "non-ar",
+            "score": round(score_hit(h, query), 2)
+        })
+
+    return {
+        "t0": t0,
+        "detected_lang": force_lang or detect_lang(query),
+        "sources": sources,
+        "passages": passages,
+        "tokens_used": 0
+    }
