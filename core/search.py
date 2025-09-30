@@ -26,4 +26,4 @@ def deep_search(query: str, include_prices: bool = False, max_results: int = 20)
             url = f"https://duckduckgo.com/html/?q={query}"
             headers = {"User-Agent": "Mozilla/5.0"}
             html = requests.get(url, headers=headers, timeout=12).text
-            for link, title in re.findall(r'<a rel="nofollow" class="result__a" href="(.*?)">(
+            for link, title in re.findall(r'<a rel="nofollow" class="result__a" href="(.*?)">(.*?)</a>', html):
