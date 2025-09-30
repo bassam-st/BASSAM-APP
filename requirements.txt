@@ -1,25 +1,48 @@
+# ==========================
+# Bassam Intelligent App (Full Deep Version)
+# FastAPI + Smart Search + RAG + OCR + PDF + Image Upload + Translation
+# ==========================
+
 fastapi==0.115.0
 uvicorn==0.30.6
 jinja2==3.1.4
+
+# Network and HTTP
 httpx==0.27.0
+requests==2.32.3
+python-multipart==0.0.9
+
+# Parsing / Scraping / Reading
 beautifulsoup4==4.12.3
 readability-lxml==0.8.1
 duckduckgo_search==6.2.12
 wikipedia==1.4.0
+lxml_html_clean
+
+# Summarization & NLP
 sumy==0.11.0
 sympy==1.12
-numpy==1.26.4
 rapidfuzz==3.9.6
 rank-bm25==0.2.2
 diskcache==5.6.3
-python-multipart==0.0.9
-pypdf==4.3.1
-Pillow==10.4.0
-lxml_html_clean
 
-# === إضافات جديدة ===
-deep-translator==1.11.4
-googletrans==4.0.0rc1
+# AI / Math / Data
+numpy==1.26.4
+
+# PDF Handling
+pypdf==4.3.1
 pdfminer.six==20231228
+
+# Image Handling
+Pillow==10.4.0
 imagehash==4.3.1
-pytesseract==0.3.10
+pytesseract==0.3.10   # لاستخراج النص من الصور (اختياري)
+
+# Translation
+deep-translator==1.11.4
+googletrans==3.1.0a0   # متوافقة مع httpx الحديثة
+
+# Optional Helpers
+pycountry==24.6.1
+mpmath==1.3.0
+nltk==3.9.1
