@@ -1,6 +1,7 @@
-# core/__init__.py — تصدير الدوال العامة
+# core/__init__.py — واجهة موحدة للوحدات المساعدة في مشروع بسام الذكي
 
 from .utils import (
+    ensure_dirs,
     dedup_by_url,
     clamp,
     simple_md_search,
