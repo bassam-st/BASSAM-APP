@@ -1,113 +1,171 @@
-# -*- coding: utf-8 -*-
-# core/search.py — بحث ويب عميق مبسّط لـ "بسام الذكي"
-
-from typing import List, Dict
+# core/search.py — Meta search (DDG + Google + Bing + Brave) with graceful fallback
+from typing import List, Dict, Optional
+import os, hashlib
+import httpx
+from bs4 import BeautifulSoup
 from duckduckgo_search import DDGS
-import httpx, re
 
-from .utils import dedup_by_url, clean_html, normalize_text
+UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36"
 
-UA = (
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124 Safari/537.36"
-)
+def _clean_text(html: str) -> str:
+    soup = BeautifulSoup(html, "lxml")
+    for tag in soup(["script","style","noscript"]):
+        tag.decompose()
+    return " ".join(soup.get_text(" ").split())
 
-def _fetch_url_snippet(url: str, timeout: float = 8.0) -> str:
-    """يجلب مقتطفًا بسيطًا من الصفحة عند الحاجة (Fallback)."""
+def _fetch_snippet(url: str, timeout: float = 8.0) -> str:
     try:
         with httpx.Client(headers={"User-Agent": UA}, timeout=timeout, follow_redirects=True) as c:
             r = c.get(url)
-            if r.status_code != 200:
-                return ""
-            # خذ أول 1200 حرف بعد تنظيف HTML
-            txt = clean_html(r.text)
-            return txt[:1200]
+        if r.status_code >= 400 or not r.text:
+            return ""
+        return _clean_text(r.text)[:600]
     except Exception:
         return ""
 
+def _dedup(items: List[Dict]) -> List[Dict]:
+    seen = set()
+    out = []
+    for it in items:
+        u = (it.get("url") or "").strip()
+        if not u:
+            continue
+        key = hashlib.md5(u.encode("utf-8")).hexdigest()
+        if key in seen: 
+            continue
+        seen.add(key)
+        out.append(it)
+    return out
 
-def ddg_web(query: str, max_results: int = 8) -> List[Dict]:
-    """بحث نصي من DuckDuckGo مع هيكلة قياسية للنتائج."""
+# ---------------------------
+# 1) DuckDuckGo (free)
+# ---------------------------
+def _ddg_search(query: str, max_results: int = 8) -> List[Dict]:
     out: List[Dict] = []
-    q = normalize_text(query)
     try:
         with DDGS() as ddgs:
-            for hit in ddgs.text(q, max_results=max_results, safesearch="moderate", region="wt-wt"):
-                title = hit.get("title") or ""
-                url = hit.get("href") or hit.get("url") or ""
-                snippet = hit.get("body") or ""
-                if not url:
-                    continue
-                out.append({
-                    "title": title.strip(),
-                    "url": url.strip(),
-                    "snippet": snippet.strip(),
-                })
-    except Exception:
-        pass
+            for h in ddgs.text(query, region="wt-wt", safesearch="moderate", max_results=max_results):
+                url = h.get("href") or h.get("url") or ""
+                title = h.get("title") or h.get("source") or url
+                snippet = h.get("body") or ""
+                if not snippet:
+                    snippet = _fetch_snippet(url)
+                if url:
+                    out.append({"title": title, "url": url, "snippet": snippet})
+    except Exception as e:
+        print(f"[DDG ERROR] {e}")
+    return out
 
-    # لو المقتطفات فاضية، حاول نجيب مقطع صغير من الصفحة
-    for h in out:
-        if not h["snippet"]:
-            h["snippet"] = _fetch_url_snippet(h["url"])
-    return dedup_by_url(out)
+# ---------------------------
+# 2) Google via Serper.dev (optional API)
+#    set env: SERPER_API_KEY=xxxxxxxx
+# ---------------------------
+def _google_serper(query: str, max_results: int = 8) -> List[Dict]:
+    key = os.getenv("SERPER_API_KEY", "").strip()
+    if not key:
+        return []
+    url = "https://google.serper.dev/search"
+    try:
+        payload = {"q": query, "num": max_results, "gl": "sa", "hl": "ar"}
+        headers = {"X-API-KEY": key, "Content-Type": "application/json", "User-Agent": UA}
+        r = httpx.post(url, json=payload, headers=headers, timeout=12.0)
+        r.raise_for_status()
+        data = r.json()
+        items = data.get("organic", []) or []
+        out = []
+        for it in items[:max_results]:
+            link = it.get("link")
+            title = it.get("title") or link
+            snippet = it.get("snippet") or _fetch_snippet(link)
+            if link:
+                out.append({"title": title, "url": link, "snippet": snippet})
+        return out
+    except Exception as e:
+        print(f"[GOOGLE SERPER ERROR] {e}")
+        return []
 
+# ---------------------------
+# 3) Bing (optional API)
+#    set env: BING_API_KEY=xxxxxxxx
+# ---------------------------
+def _bing_search(query: str, max_results: int = 8) -> List[Dict]:
+    key = os.getenv("BING_API_KEY", "").strip()
+    if not key:
+        return []
+    endpoint = "https://api.bing.microsoft.com/v7.0/search"
+    try:
+        params = {"q": query, "mkt": "ar-SA", "count": max_results}
+        headers = {"Ocp-Apim-Subscription-Key": key, "User-Agent": UA}
+        r = httpx.get(endpoint, params=params, headers=headers, timeout=12.0)
+        r.raise_for_status()
+        web = (r.json() or {}).get("webPages", {}).get("value", [])
+        out = []
+        for it in web[:max_results]:
+            link = it.get("url")
+            title = it.get("name") or link
+            snippet = it.get("snippet") or _fetch_snippet(link)
+            if link:
+                out.append({"title": title, "url": link, "snippet": snippet})
+        return out
+    except Exception as e:
+        print(f"[BING ERROR] {e}")
+        return []
 
-def _price_domains() -> List[str]:
-    return [
-        "amazon.com", "aliexpress.com", "temu.com", "noon.com", "jumia.com",
-        "souq.com", "ebay.com", "walmart.com", "bestbuy.com", "newegg.com",
-        "alibaba.com", "rakuten.com", "cartlow.com", "namshi.com",
-    ]
+# ---------------------------
+# 4) Brave Search (optional API)
+#    set env: BRAVE_API_KEY=xxxxxxxx
+# ---------------------------
+def _brave_search(query: str, max_results: int = 8) -> List[Dict]:
+    key = os.getenv("BRAVE_API_KEY", "").strip()
+    if not key:
+        return []
+    endpoint = "https://api.search.brave.com/res/v1/web/search"
+    try:
+        headers = {"Accept": "application/json", "X-Subscription-Token": key, "User-Agent": UA}
+        params = {"q": query, "count": max_results, "country": "sa", "safesearch": "moderate"}
+        r = httpx.get(endpoint, headers=headers, params=params, timeout=12.0)
+        r.raise_for_status()
+        web = (r.json() or {}).get("web", {}).get("results", [])
+        out = []
+        for it in web[:max_results]:
+            link = it.get("url")
+            title = it.get("title") or link
+            snippet = (it.get("description") or "")[:600]
+            if not snippet and link:
+                snippet = _fetch_snippet(link)
+            if link:
+                out.append({"title": title, "url": link, "snippet": snippet})
+        return out
+    except Exception as e:
+        print(f"[BRAVE ERROR] {e}")
+        return []
 
-
-def deep_search(
-    query: str,
-    include_prices: bool = False,
-    include_images: bool = False,
-    max_results: int = 8,
-) -> List[Dict]:
+# ---------------------------
+# Public entry
+# ---------------------------
+def deep_search(query: str, include_prices: bool = False, include_images: bool = False) -> List[Dict]:
     """
-    بحث عميق مبسّط:
-    - يبدأ بنتائج نصية من DDG
-    - لو include_prices=True يضيف نتائج من مواقع تسوّق
-    - include_images لا يغيّر الشكل هنا (الصور تُدار من الواجهة لاحقًا)
+    يبحث في عدة محركات (حسب المتاح):
+    - DuckDuckGo (دائمًا)
+    - Google (Serper) اختياري
+    - Bing اختياري
+    - Brave اختياري
+    ويرجع: [{"title","url","snippet"}]
     """
-    results = ddg_web(query, max_results=max_results)
+    query = (query or "").strip()
+    if not query:
+        return []
 
-    # أسعار (نبحث على نطاقات متاجر)
+    q = query
     if include_prices:
-        price_q = f'{query} price OR سعر OR buy'
-        domains = _price_domains()
-        # نستعلم عدّة مرات بتصفية النطاقات
-        with DDGS() as ddgs:
-            for dom in domains[:6]:  # يكفي 6 نطاقات لتقليل الوقت
-                try:
-                    for hit in ddgs.text(
-                        f'site:{dom} {price_q}',
-                        max_results=3,
-                        safesearch="moderate",
-                        region="wt-wt",
-                    ):
-                        url = (hit.get("href") or hit.get("url") or "").strip()
-                        if not url:
-                            continue
-                        results.append({
-                            "title": (hit.get("title") or "").strip(),
-                            "url": url,
-                            "snippet": (hit.get("body") or "").strip(),
-                        })
-                except Exception:
-                    pass
+        q = f"{query} site:amazon.com OR site:aliexpress.com OR site:noon.com OR site:souq.com"
 
-    # تنظيف وتوحيد الشكل
-    out: List[Dict] = []
-    for h in results:
-        if not h.get("url"):  # حماية
-            continue
-        out.append({
-            "title": (h.get("title") or "").strip()[:200],
-            "url": h["url"].strip(),
-            "snippet": clean_html((h.get("snippet") or "").strip())[:600],
-        })
-    return dedup_by_url(out)
+    results: List[Dict] = []
+    # تشغيل المتوفر — ترتيب يمزج جوجل/بينغ/بريف مع DDG
+    results += _google_serper(q, 6)
+    results += _bing_search(q, 6)
+    results += _brave_search(q, 6)
+    # دائمًا DDG (مجانًا)
+    results += _ddg_search(q, 8)
+
+    return _dedup(results)
