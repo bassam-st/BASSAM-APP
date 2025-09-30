@@ -95,3 +95,32 @@ def clean_html(html_text: str) -> str:
     txt = BeautifulSoup(txt, "html.parser").get_text("\n")
     txt = re.sub(r"\n{3,}", "\n\n", txt)
     return txt.strip()
+# ==== تنميط النصوص (Normalize) ====
+# يزيل التشكيل والمدّ، يوحّد الأرقام، يقلّل المسافات، ويحوّل الحروف لخفضية عند اللاتيني
+_ARABIC_DIACRITICS_RE = re.compile(r"[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]")
+_TATWEEL_RE = re.compile(r"\u0640")  # ـ (مدّة)
+
+def normalize_spaces(s: str) -> str:
+    """ضغط المسافات والأسطر"""
+    if not s:
+        return ""
+    return re.sub(r"\s+", " ", s).strip()
+
+def normalize_text(s: str) -> str:
+    """
+    تنميط نص عربي/مختلط:
+    - إزالة التشكيل والمدّة
+    - توحيد الأرقام العربية/الفارسية إلى إنجليزية
+    - ضغط المسافات
+    - عدم المساس بعلامات الترقيم
+    """
+    if not s:
+        return ""
+    # إزالة التشكيل والمدّة
+    s = _ARABIC_DIACRITICS_RE.sub("", s)
+    s = _TATWEEL_RE.sub("", s)
+    # توحيد الأرقام
+    s = convert_arabic_numbers(s)
+    # ضغط المسافات
+    s = normalize_spaces(s)
+    return s
