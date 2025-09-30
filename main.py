@@ -1,581 +1,159 @@
-# main.py — Bassam الذكي v4.1
-# Chat + RAG + Deep Web + Math + PDF/Image + Download + Arabic UI
-
-from fastapi import FastAPI, Request, Query, Body, UploadFile, File, HTTPException
-from fastapi.responses import HTMLResponse, Response
+# main.py — Bassam Deep Search API
+import os, re, json, time, html
+from typing import Optional, List, Dict
+from fastapi import FastAPI, Request, Query
+from fastapi.responses import JSONResponse, HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.middleware.cors import CORSMiddleware
 
-import os, json, time, re, shutil
-from typing import List, Dict, Any
-from urllib.parse import urlparse
+from core.search import deep_search
+from core.summarizer import smart_summarize
+from core.arabic_text import is_arabic, normalize_spaces
+from core.providers import price_lookup_grouped
 
-# -------- Web / Text --------
-from duckduckgo_search import DDGS
-from bs4 import BeautifulSoup
-from readability import Document
+APP_NAME = "Bassam Deep Search"
+app = FastAPI(title=APP_NAME, version="2.0")
 
-# -------- Summarization (sumy) --------
-try:
-    from sumy.parsers.text import PlaintextParser
-except Exception:
-    from sumy.parsers.plaintext import PlaintextParser
-from sumy.nlp.tokenizers import Tokenizer
-from sumy.summarizers.text_rank import TextRankSummarizer
-
-# -------- Math --------
-from sympy import symbols, sympify, diff, integrate, simplify
-
-# -------- RAG BM25 --------
-from rank_bm25 import BM25Okapi
-
-# -------- Files / PDF / Images --------
-from pypdf import PdfReader
-from PIL import Image
-
-# -------- HTTP client (download/proxy) --------
-import httpx
-
-
-# =========================
-# 1) تهيئة التطبيق والمجلدات
-# =========================
-app = FastAPI(title="Bassam الذكي 🤖", version="4.1")
-
-DATA_DIR     = "data"
-NOTES_DIR    = os.path.join(DATA_DIR, "notes")
-FILES_DIR    = "files"
-UPLOADS_DIR  = os.path.join(FILES_DIR, "uploads")
-LEARN_PATH   = os.path.join(NOTES_DIR, "learned.jsonl")
-USAGE_PATH   = os.path.join(DATA_DIR,  "usage_stats.json")
-
-for d in (DATA_DIR, NOTES_DIR, FILES_DIR, UPLOADS_DIR):
-    os.makedirs(d, exist_ok=True)
-
-# ملفات استاتيكية وواجهة
-app.mount("/files", StaticFiles(directory=FILES_DIR), name="files")
-try:
-    app.mount("/static", StaticFiles(directory="static"), name="static")
-    templates = Jinja2Templates(directory="templates")
-except Exception:
-    templates = None
-
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"], allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
 
-
-# =========================
-# 2) أدوات مساعدة
-# =========================
-def summarize_text(text: str, max_sentences: int = 3) -> str:
-    """تلخيص خفيف عربي؛ إن فشل، قصّ أول 400 حرف."""
-    try:
-        parser = PlaintextParser.from_string(text or "", Tokenizer("arabic"))
-        sents = TextRankSummarizer()(parser.document, max_sentences)
-        return " ".join(map(str, sents)) if sents else (text or "")[:400]
-    except Exception:
-        return (text or "")[:400]
-
-def _tokenize_ar(s: str) -> List[str]:
-    return re.findall(r"[\w\u0600-\u06FF]+", (s or "").lower())
-
-def ensure_safe_filename(name: str) -> str:
-    name = re.sub(r"[^\w\-.]+", "_", name or "")
-    return name[:120] or f"file_{int(time.time())}"
-
-def log_usage():
-    try:
-        if not os.path.exists(USAGE_PATH):
-            with open(USAGE_PATH, "w", encoding="utf-8") as f:
-                json.dump({"requests": 0, "last_time": int(time.time())}, f)
-        with open(USAGE_PATH, "r+", encoding="utf-8") as f:
-            data = json.load(f)
-            data["requests"] = int(data.get("requests", 0)) + 1
-            data["last_time"] = int(time.time())
-            f.seek(0); json.dump(data, f, ensure_ascii=False); f.truncate()
-    except Exception:
-        pass
-
-def answer_bubble(text: str, sources: List[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """التنسيق الموحد لفقاعة الرد."""
-    resp = {"type": "chat", "answer": (text or "").strip()}
-    if sources:
-        out = []
-        for s in sources:
-            s = dict(s or {})
-            s["summary"] = summarize_text(s.get("snippet", "") or "", 2)
-            out.append(s)
-        resp["sources"] = out
-    return resp
-
-
-# =========================
-# 3) RAG (BM25 محلي)
-# =========================
-def _read_md_txt_files() -> List[Dict[str, str]]:
-    docs = []
-    for root, _, files in os.walk(DATA_DIR):
-        for fn in files:
-            if fn.endswith(".md") or fn.endswith(".txt"):
-                p = os.path.join(root, fn)
-                try:
-                    with open(p, "r", encoding="utf-8", errors="ignore") as f:
-                        docs.append({"file": p, "text": f.read()})
-                except:
-                    pass
-    # بنك التعلّم الذاتي
-    try:
-        if os.path.exists(LEARN_PATH):
-            with open(LEARN_PATH, "r", encoding="utf-8") as f:
-                for line in f:
-                    if not line.strip(): 
-                        continue
-                    obj = json.loads(line)
-                    text = f"س: {obj.get('question','')}\nج: {obj.get('answer','')}\nوسوم:{','.join(obj.get('tags',[]))}"
-                    docs.append({"file": "learned", "text": text})
-    except:
-        pass
-    return docs
-
-BM25_INDEX = None
-BM25_DOCS  = []
-BM25_CORPUS = []
-
-def build_index():
-    global BM25_INDEX, BM25_DOCS, BM25_CORPUS
-    BM25_DOCS = _read_md_txt_files()
-    BM25_CORPUS = [_tokenize_ar(d["text"]) for d in BM25_DOCS]
-    BM25_INDEX = BM25Okapi(BM25_CORPUS) if BM25_CORPUS else None
-    return len(BM25_DOCS)
-
-def rag_bm25(query: str, k=3):
-    if not BM25_INDEX:
-        return []
-    toks = _tokenize_ar(query)
-    scores = BM25_INDEX.get_scores(toks)
-    pairs = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:k]
-    res = []
-    for idx, sc in pairs:
-        if sc < 1.0: 
-            continue
-        doc = BM25_DOCS[idx]
-        res.append({"file": doc["file"], "score": float(sc), "snippet": doc["text"][:1000]})
-    return res
-
-build_index()
-
-
-# =========================
-# 4) رياضيات
-# =========================
-def solve_math(expr: str):
-    try:
-        x = symbols('x')
-        parsed = sympify(expr)
-        return {
-            "input": str(parsed),
-            "simplified": str(simplify(parsed)),
-            "derivative": str(diff(parsed, x)),
-            "integral": str(integrate(parsed, x)),
-        }
-    except Exception as e:
-        return {"error": f"تعذر تحليل المعادلة: {e}"}
-
-
-# =========================
-# 5) بحث الويب (عام/متقدّم)
-# =========================
-def web_search_basic(q: str, limit: int = 8, prefer_arabic: bool = False):
-    """بحث نظيف عبر DuckDuckGo؛ يمكن تفضيل العربية بإضافة كلمة (site:.sa OR lang:ar تقريبية)."""
-    try:
-        query = q
-        if prefer_arabic:
-            query = f"{q} (site:.sa OR site:.ae OR site:.eg OR lang:ar)"
-        with DDGS() as ddgs:
-            out = []
-            for r in ddgs.text(query, region="xa-ar", safesearch="off", max_results=limit):
-                out.append({
-                    "title": r.get("title",""),
-                    "link":  r.get("href",""),
-                    "snippet": r.get("body","")
-                })
-            return out
-    except Exception:
-        return []
-
-PLATFORM_FILTERS = {
-    "social":  ["site:x.com", "site:twitter.com", "site:facebook.com", "site:instagram.com",
-                "site:linkedin.com", "site:tiktok.com", "site:reddit.com", "site:snapchat.com"],
-    "video":   ["site:youtube.com", "site:vimeo.com", "site:tiktok.com", "site:dailymotion.com"],
-    "markets": ["site:alibaba.com", "site:amazon.com", "site:aliexpress.com",
-                "site:etsy.com", "site:ebay.com", "site:noon.com"],
-    "gov":     ["site:gov", "site:gov.sa", "site:gov.ae", "site:gov.eg", "site:edu", "site:edu.sa", "site:edu.eg"],
-    "all":     []
-}
-
-def deep_search(q: str, mode: str = "all", per_site: int = 4, max_total: int = 30, prefer_arabic: bool=False):
-    domains = PLATFORM_FILTERS.get(mode, [])
-    # بحث عام قوي (بدون فلاتر)
-    if not domains:
-        hits = web_search_basic(q, limit=20, prefer_arabic=prefer_arabic)
-        seen, out = set(), []
-        for h in hits:
-            link = h.get("link")
-            if not link or link in seen:
-                continue
-            seen.add(link); out.append(h)
-        for h in out:
-            h["summary"] = summarize_text(h.get("snippet","") or "", 2)
-        return out[:max_total]
-
-    # مع فلاتر منصّات
-    results, seen = [], set()
-    try:
-        with DDGS() as ddgs:
-            for dom in domains:
-                query = f"{q} {dom}"
-                for r in ddgs.text(query, region="xa-ar", safesearch="off", max_results=per_site):
-                    link = r.get("href","")
-                    if not link or link in seen:
-                        continue
-                    seen.add(link)
-                    results.append({
-                        "title": r.get("title",""),
-                        "link": link,
-                        "snippet": r.get("body",""),
-                        "domain": dom.replace("site:","")
-                    })
-                    if len(results) >= max_total:
-                        break
-                if len(results) >= max_total:
-                    break
-    except Exception:
-        pass
-    for r in results:
-        r["summary"] = summarize_text(r.get("snippet","") or "", 2)
-    return results
-
-
-# =========================
-# 6) PDF/صورة + تنزيل
-# =========================
-def extract_pdf_text(path: str) -> str:
-    try:
-        reader = PdfReader(path)
-        return "\n".join((p.extract_text() or "") for p in reader.pages)
-    except Exception:
-        return ""
-
-@app.post("/upload/pdf")
-async def upload_pdf(file: UploadFile = File(...)):
-    if not file.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "ارفع ملف PDF فقط.")
-    safe = ensure_safe_filename(file.filename)
-    dest = os.path.join(UPLOADS_DIR, safe)
-    with open(dest, "wb") as out:
-        shutil.copyfileobj(file.file, out)
-    text = extract_pdf_text(dest)
-    if text.strip():
-        txt = safe.rsplit(".",1)[0] + ".txt"
-        with open(os.path.join(DATA_DIR, txt), "w", encoding="utf-8") as f:
-            f.write(text)
-        n = build_index()
-    else:
-        n = len(BM25_DOCS)
-    return {"ok": True, "file_url": f"/files/uploads/{safe}", "indexed_docs": n}
-
-@app.post("/upload/image")
-async def upload_image(request: Request, file: UploadFile = File(...)):
-    ext = os.path.splitext(file.filename or "")[1].lower()
-    if ext not in [".jpg",".jpeg",".png",".webp",".bmp"]:
-        raise HTTPException(400, "ارفع صورة بصيغة jpg/png/webp/bmp.")
-    safe = ensure_safe_filename(file.filename or f"img_{int(time.time())}{ext}")
-    dest = os.path.join(UPLOADS_DIR, safe)
-    with open(dest, "wb") as out:
-        shutil.copyfileobj(file.file, out)
-    try:
-        Image.open(dest).verify()
-    except Exception:
-        os.remove(dest); raise HTTPException(400, "الملف ليس صورة صالحة.")
-    base = str(request.base_url).rstrip("/")
-    url  = f"{base}/files/uploads/{safe}"
-    return {
-        "ok": True, "image_url": url,
-        "reverse": {
-            "google": f"https://www.google.com/searchbyimage?image_url={url}",
-            "bing":   f"https://www.bing.com/images/search?q=imgurl:{url}&view=detailv2&iss=sbi",
-            "yandex": f"https://yandex.com/images/search?rpt=imageview&url={url}",
-            "tineye": f"https://tineye.com/search?url={url}"
-        }
-    }
-
-@app.get("/files_list")
-def files_list():
-    items = []
-    for root, _, files in os.walk(FILES_DIR):
-        for fn in files:
-            path = os.path.join(root, fn)
-            rel  = os.path.relpath(path, FILES_DIR).replace("\\","/")
-            items.append("/files/" + rel)
-    items.sort()
-    return {"count": len(items), "files": items}
-
-@app.get("/download")
-async def download(url: str = Query(..., description="URL للتنزيل")):
-    headers = {"User-Agent": "Mozilla/5.0 (BassamBot; +https://render.com)"}
-    timeout = httpx.Timeout(30.0, connect=10.0)
-    async with httpx.AsyncClient(headers=headers, timeout=timeout, follow_redirects=True) as client:
-        r = await client.get(url)
-    ct = (r.headers.get("content-type") or "application/octet-stream").split(";")[0]
-    return Response(content=r.content, media_type=ct)
-
-
-# =========================
-# 7) واجهات الدردشة/البحث
-# =========================
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    if templates and os.path.exists(os.path.join("templates","index.html")):
-        return templates.TemplateResponse("index.html", {"request": request, "version": "v4.1"})
-    return HTMLResponse("<h3>بسّام يعمل. ارفع templates/index.html لاستخدام الواجهة.</h3>")
+# مجلداتك الحالية
+if os.path.isdir("static"):
+    app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates") if os.path.isdir("templates") else None
 
 @app.get("/healthz")
-def healthz():
-    return {"status":"ok","version":"4.1","docs_indexed":len(BM25_DOCS)}
+def healthz(): return {"status": "ok", "time": time.time()}
 
-@app.get("/ask")
-def ask(q: str = Query(..., description="سؤالك"), prefer_ar: bool = Query(False, description="تفضيل العربية")):
-    """تدفق: RAG → ويب → رياضيات → لا نتائج."""
-    log_usage()
-    q = (q or "").strip()
-    if not q:
-        return {"type":"chat","answer":"أدخل سؤالك."}
+@app.get("/", response_class=HTMLResponse)
+def home(request: Request):
+    if not templates:
+        return HTMLResponse("<h2>Bassam API is running</h2>")
+    return templates.TemplateResponse("index.html", {"request": request, "app_name": APP_NAME})
 
-    # رياضيات؟
-    if any(t in q for t in ["sin","cos","tan","log","exp","^"]) or ("مشتقة" in q) or ("تكامل" in q):
-        math = solve_math(q)
-        return {"type":"math", "result": math, "answer": "🧮 هذه تفاصيل الحساب."}
+@app.get("/api/search")
+def api_search(
+    q: str = Query(..., min_length=2, description="سؤال أو كلمات مفتاحية"),
+    max_sources: int = 6,
+    want_prices: bool = False,
+    lang: Optional[str] = None
+):
+    q = normalize_spaces(q)
+    result = deep_search(q, max_sources=max_sources, force_lang=lang)
 
-    # RAG محلي
-    rag = rag_bm25(q, k=3)
-    if rag:
-        summary = summarize_text(rag[0]["snippet"], 3)
-        return answer_bubble(summary)
+    # تلخيص عربي مختصر + ترجمة تلقائية إلى العربية
+    answer = smart_summarize(result["passages"], query=q)
 
-    # ويب
-    hits = web_search_basic(q, limit=10, prefer_arabic=prefer_ar)
-    if hits:
-        tops = hits[:5]
-        bullet = "\n".join(f"- {h.get('title')}: {h.get('snippet')}" for h in tops)
-        # إجابة مختصرة مباشرة
-        brief = summarize_text(bullet, 3)
-        return answer_bubble(brief, hits[:10])
+    payload: Dict = {
+        "query": q,
+        "answer": answer["ar_answer"],
+        "detected_lang": result["detected_lang"],
+        "sources": result["sources"],   # [{title,url,site,lang,score}]
+        "snippets": result["passages"], # [{url,text}]
+        "tokens_used": result.get("tokens_used", 0),
+        "latency_ms": int((time.time() - result["t0"]) * 1000),
+    }
 
-    return answer_bubble("لم أجد نتائج حول سؤالك. جرّب صياغة أدق أو أضف كلمات مفتاحية.")
+    if want_prices:
+        payload["prices"] = price_lookup_grouped(q)
 
-@app.get("/search")
-def search_endpoint(q: str = Query(...), mode: str = "all", per_site: int = 4, max_total: int = 30, prefer_ar: bool=False):
-    q = (q or "").strip()
-    if not q:
-        return {"type":"chat", "answer":"أدخل عبارة البحث."}
-    results = deep_search(q, mode=mode, per_site=per_site, max_total=max_total, prefer_arabic=prefer_ar)
-    if results:
-        brief = summarize_text("\n".join("- " + (r.get("title") or "") for r in results[:8]), 3)
-        return {"type":"chat", "answer": brief, "sources": results}
-    return {"type":"chat", "answer":"لم أجد نتائج واضحة، جرّب وصفًا أدق."}
+    return JSONResponse(payload)
+    # ====== UPLOADS: إعدادات بسيطة ======
+import pathlib, shutil, hashlib
+from fastapi import File, UploadFile, Form
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
+from pdfminer.high_level import extract_text
+from PIL import Image
+import imagehash
+import numpy as np
 
-@app.get("/search/advanced")
-def search_advanced(q: str = Query(...), timelimit: str = "", social: bool=False, market: bool=False,
-                    gov: bool=False, edu: bool=False, video: bool=False, deep: bool=False, prefer_ar: bool=False):
-    mode = "all"
-    if social: mode = "social"
-    elif market: mode = "markets"
-    elif gov or edu: mode = "gov"
-    elif video: mode = "video"
-    results = deep_search(q, mode=mode, per_site=6 if deep else 4, max_total=40 if deep else 25, prefer_arabic=prefer_ar)
-    brief = summarize_text("\n".join("- "+(r.get("title") or "") for r in results[:10]), 3) if results else "لا نتائج."
-    return {"count": len(results), "results": results, "answer": brief}
+UPLOAD_DIR = pathlib.Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
 
-@app.post("/feedback")
-def feedback(payload: Dict[str,Any] = Body(...)):
-    q = (payload.get("question") or "").strip()
-    a = (payload.get("answer") or "").strip()
-    tags = payload.get("tags") or []
-    if not q or not a: 
-        return {"ok":False,"error":"question و answer مطلوبة"}
-    with open(LEARN_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps({"time":int(time.time()),"question":q,"answer":a,"tags":tags}, ensure_ascii=False)+"\n")
-    n = build_index()
-    return {"ok":True,"indexed_docs":n}
+# نعرض مجلد الرفع كستاتيك للوصول للملفات برابط عام (يلزم لـ Google Lens/Yandex)
+app.mount("/uploads", StaticFiles(directory=str(UPLOAD_DIR)), name="uploads")
 
-@app.post("/train")
-def train(): 
-    return {"ok":True, "indexed_docs": build_index()}
+def _save_upload(tmpfile: UploadFile, subdir: str) -> str:
+    folder = UPLOAD_DIR / subdir
+    folder.mkdir(parents=True, exist_ok=True)
+    # اسم ثابت من تجزئة المحتوى
+    content = tmpfile.file.read()
+    tmpfile.file.seek(0)
+    h = hashlib.sha1(content).hexdigest()[:16]
+    ext = (tmpfile.filename or "").split(".")[-1].lower()
+    ext = ext if ext in ("png","jpg","jpeg","webp","pdf") else "bin"
+    out = folder / f"{h}.{ext}"
+    with open(out, "wb") as f:
+        shutil.copyfileobj(tmpfile.file, f)
+    return f"/uploads/{subdir}/{out.name}"
 
-@app.get("/stats")
-def stats():
+# ====== 1) رفع PDF وضمّه لـ RAG ======
+@app.post("/api/upload/pdf")
+async def upload_pdf(file: UploadFile = File(...)):
+    public_url = _save_upload(file, "pdf")
+    # استخرج نص PDF وضعه كملف .txt داخل data/ ليدخله RAG
+    local_path = "." + public_url  # لأن public_url يبدأ بـ /uploads
     try:
-        with open(USAGE_PATH, "r", encoding="utf-8") as f: 
-            return json.load(f)
-    except: 
-        return {"requests":0}
+        text = extract_text(local_path)
+        data_dir = pathlib.Path("data")
+        data_dir.mkdir(exist_ok=True)
+        out_txt = data_dir / (pathlib.Path(local_path).stem.split("/")[-1] + ".txt")
+        out_txt.write_text(text[:500000], encoding="utf-8", errors="ignore")
+        return {"ok": True, "url": public_url, "indexed_file": str(out_txt)}
+    except Exception as e:
+        return {"ok": False, "url": public_url, "error": str(e)}
 
-
-# =========================
-# 8) تشغيل محلّي
-# =========================
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
-    # === deep_search (RAG + Web) مع إبقاء بقية التطبيق كما هو ===
-from fastapi import APIRouter
-import os, re, math, time, json
-import httpx
-from duckduckgo_search import DDGS
-from readability import Document
-from bs4 import BeautifulSoup
-from diskcache import Cache
-
-# RAG الخفيف (بدون نماذج ثقيلة)
-from rank_bm25 import BM25Okapi
-from rapidfuzz import fuzz
-from pathlib import Path
-
-# تلخيص خفيف
-from sumy.parsers.plaintext import PlainTextParser
-from sumy.summarizers.text_rank import TextRankSummarizer
-from sumy.nlp.tokenizers import Tokenizer
-
-router = APIRouter()
-CACHE = Cache("cache")
-UPLOAD_DIR = "uploads"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-ARABIC_RE = re.compile(r"[\u0600-\u06FF]")
-
-def _split_chunks(text: str, size=800, overlap=120):
-    text = re.sub(r"\s+", " ", text).strip()
-    chunks, i = [], 0
-    while i < len(text):
-        chunks.append(text[i:i+size])
-        i += size - overlap
-    return chunks
-
-def _load_local_docs(upload_dir=UPLOAD_DIR):
-    """يقرأ txt/md/pdf بشكل مبسط"""
-    docs = []
-    for p in Path(upload_dir).glob("**/*"):
-        if p.is_file() and p.suffix.lower() in [".txt", ".md", ".pdf"]:
-            try:
-                if p.suffix.lower() == ".pdf":
-                    from pypdf import PdfReader
-                    reader = PdfReader(str(p))
-                    txt = " ".join(page.extract_text() or "" for page in reader.pages)
-                else:
-                    txt = p.read_text(encoding="utf-8", errors="ignore")
-                if txt.strip():
-                    for ch in _split_chunks(txt):
-                        docs.append({"source": str(p.name), "chunk": ch})
-            except Exception:
-                continue
-    return docs
-
-def _rag_search(query: str, k=6):
-    """BM25 + فلتر تشابه سريع"""
-    docs = _load_local_docs()
-    if not docs:
-        return []
-    corpus = [d["chunk"] for d in docs]
-    tokenized = [c.lower().split() for c in corpus]
-    bm25 = BM25Okapi(tokenized)
-    scores = bm25.get_scores(query.lower().split())
-    ranked = sorted(
-        [{"score": float(s), **docs[i]} for i, s in enumerate(scores)],
-        key=lambda x: x["score"], reverse=True
-    )[:k*2]
-    # فلترة بالتشابه الدلالي السريع
-    filtered = sorted(
-        ranked,
-        key=lambda x: fuzz.partial_ratio(query, x["chunk"]),
-        reverse=True
-    )[:k]
-    return filtered
-
-async def _fetch_html(session: httpx.AsyncClient, url: str) -> str:
+# ====== 2) رفع صورة والبحث بصريًا ======
+def _basic_image_tags(local_path: str) -> str:
+    """وصف بسيط جداً: ألوان سائدة + مقاس + (اختياري) OCR لاحقاً"""
     try:
-        r = await session.get(url, timeout=12)
-        r.raise_for_status()
-        html = r.text
-        try:
-            # Readability للحصول على المتن
-            doc = Document(html)
-            article_html = doc.summary()
-            soup = BeautifulSoup(article_html, "html.parser")
-            text = soup.get_text(" ", strip=True)
-        except Exception:
-            soup = BeautifulSoup(html, "html.parser")
-            text = soup.get_text(" ", strip=True)
-        return text[:20000]
+        im = Image.open(local_path).convert("RGB")
+        arr = np.array(im).reshape(-1, 3)
+        mean = arr.mean(axis=0)
+        w, h = im.size
+        color = f"rgb({int(mean[0])},{int(mean[1])},{int(mean[2])})"
+        return f"image {w}x{h} avg_color {color}"
     except Exception:
         return ""
 
-def _summarize_ar(text: str, n_sent=4):
-    if not text.strip():
+def _image_hash(local_path: str) -> str:
+    try:
+        im = Image.open(local_path)
+        return str(imagehash.phash(im))
+    except Exception:
         return ""
-    lang = "arabic" if ARABIC_RE.search(text) else "english"
-    parser = PlainTextParser.from_string(text, Tokenizer(lang))
-    summ = TextRankSummarizer()
-    out = [str(s) for s in summ(parser.document, n_sent)]
-    return " ".join(out)
 
-@router.get("/deep_search")
-async def deep_search(q: str, arabic: bool = True, max_web: int = 8):
-    """
-    بحث موحد:
-      1) RAG من ملفاتك (uploads/)
-      2) ثم الويب (DuckDuckGo)
-      3) دمج وتلخيص
-    """
-    # 1) RAG
-    rag_hits = _rag_search(q, k=6)
+def _search_by_image_links(public_url: str, extra_query: str = ""):
+    # مزيج روابط جاهزة للبحث بالصورة عبر خدمات عامة تتقبل URL
+    # (أحياناً تحتاج ضغط المستخدم للتأكيد)
+    links = [
+        {"name": "Google Lens (Upload URL)", "url": f"https://lens.google.com/uploadbyurl?url={public_url}"},
+        {"name": "Yandex Images", "url": f"https://yandex.com/images/search?rpt=imageview&url={public_url}"},
+        {"name": "Bing Images (preview)", "url": f"https://www.bing.com/images/search?q=imgurl:{public_url}&view=detailv2&iss=1"},
+    ]
+    # بحث نصي مساعد من اللون/المقاس
+    if extra_query:
+        from core.search import ddg_web
+        hints = ddg_web(extra_query, max_results=5)
+        for h in hints:
+            links.append({"name": f"Related: {h.get('title','')[:40]}", "url": h["url"]})
+    return links
 
-    # 2) Web
-    web_list = []
-    region = "xa-ar" if arabic else "us-en"
-    with DDGS() as ddgs:
-        for r in ddgs.text(q, region=region, safesearch="Off", max_results=max_web):
-            web_list.append({"title": r.get("title"), "href": r.get("href"), "snippet": r.get("body")})
-
-    # جلب متن الصفحات
-    web_texts = []
-    async with httpx.AsyncClient(follow_redirects=True) as session:
-        for item in web_list[:max_web]:
-            if not item.get("href"):
-                continue
-            txt = await _fetch_html(session, item["href"])
-            if txt:
-                web_texts.append({"url": item["href"], "text": txt})
-
-    # 3) دمج و تلخيص
-    rag_text = "\n\n".join([f"[{h['source']}] {h['chunk']}" for h in rag_hits])
-    web_text = "\n\n".join([t["text"] for t in web_texts])
-    combined = (rag_text + "\n\n" + web_text)[:120000]
-
-    summary = _summarize_ar(combined, n_sent=6)
-
+@app.post("/api/search_image")
+async def search_image(file: UploadFile = File(...)):
+    public_url = _save_upload(file, "images")
+    local_path = "." + public_url
+    tags = _basic_image_tags(local_path)
+    ph = _image_hash(local_path)
     return {
-        "query": q,
-        "rag_used": len(rag_hits),
-        "web_used": len(web_texts),
-        "rag_hits": rag_hits,         # مقاطع من ملفاتك مع اسم الملف
-        "web_results": web_list,      # روابط وعناوين
-        "summary": summary            # خلاصة موحدة بالعربية
+        "ok": True,
+        "image_url": public_url,
+        "perceptual_hash": ph,
+        "tags": tags,
+        "links": _search_by_image_links(public_url, extra_query=tags)
     }
-
-# اربطه بتطبيقك الرئيسي من دون تغيير أي شيء آخر:
-# app.include_router(router)
