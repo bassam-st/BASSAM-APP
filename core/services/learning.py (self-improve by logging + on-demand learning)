@@ -1,0 +1,64 @@
+import json, os, time
+from typing import Dict, List
+import requests
+from readability import Document
+from bs4 import BeautifulSoup
+from ..core.arabic_text import strip_html_preserve_lines
+
+LOG_PATH = "data/usage_stats.json"
+BRAIN_DIR = "data/brain"
+os.makedirs("data", exist_ok=True); os.makedirs(BRAIN_DIR, exist_ok=True)
+
+
+def _load_log() -> Dict:
+    if not os.path.isfile(LOG_PATH): return {"searches": [], "feedback": []}
+    try:
+        return json.load(open(LOG_PATH, "r", encoding="utf-8"))
+    except Exception:
+        return {"searches": [], "feedback": []}
+
+
+def _save_log(obj: Dict):
+    json.dump(obj, open(LOG_PATH, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
+
+
+def log_search(query: str, payload: Dict):
+    data = _load_log(); data["searches"].append({"t": time.time(), "q": query, "payload": payload})
+    _save_log(data)
+
+
+def save_feedback(query: str, helpful: bool, notes: str):
+    data = _load_log(); data["feedback"].append({"t": time.time(), "q": query, "ok": helpful, "notes": notes})
+    _save_log(data)
+
+HEADERS = {"User-Agent": "Mozilla/5.0 (BassamBot)"}
+
+def _fetch_clean(url: str) -> str:
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=12); r.raise_for_status()
+        doc = Document(r.text)
+        article_html = doc.summary()
+        text = strip_html_preserve_lines(article_html)
+        if len(text) < 300:
+            soup = BeautifulSoup(r.text, "html.parser")
+            text = strip_html_preserve_lines(str(soup))
+        return text
+    except Exception:
+        return ""
+
+
+def learn_from_sources(query: str, top_k: int = 3) -> List[str]:
+    """Fetch top sources for query and store their cleaned text into data/brain for future RAG."""
+    from ..core.search import ddg_web
+    hits = ddg_web(query, max_results=top_k)
+    saved = []
+    for h in hits[:top_k]:
+        txt = _fetch_clean(h["url"])[:12000]
+        if not txt: continue
+        safe = query.strip().replace(" ", "_")
+        name = f"{int(time.time())}_{safe}.txt"
+        path = os.path.join(BRAIN_DIR, name)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(txt)
+        saved.append(path)
+    return saved
