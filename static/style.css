@@ -10,5 +10,4 @@ input[type="file"], input#q, input#name { flex:1; min-width:220px; padding:12px;
 button { padding:10px 14px; border:0; border-radius:12px; background:#2b59ff; color:#fff; cursor:pointer; }
 .links a { display:block; color:#8ab4ff; margin:6px 0; text-decoration:none; word-break:break-word; }
 .answer { white-space:pre-wrap; line-height:1.7; background:#0f1424; padding:12px; border-radius:12px; border:1px solid #2b3759; }
-.muted { opacity:.75; font-size:.9rem; }
-body.light { --bg:#f6f7fb; --fg:#1a2237; --card:#ffffff; }
+.muted { opacity:.75; font-size:.9rem;
