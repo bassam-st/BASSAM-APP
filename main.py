@@ -84,24 +84,6 @@ async def people_api(request: Request, name: Optional[str] = Form(None)):
     except Exception as e:
         traceback.print_exc()
         return JSONResponse({"ok":False,"error":f"people_failed:{type(e).__name__}"}, 500)
-        # ---- GET people (للاختبار السريع من المتصفح) ----
-@app.get("/people")
-def people_get(name: str):
-    try:
-        name = (name or "").strip()
-        if not name:
-            return {"ok": False, "error": "name_is_empty"}
-        results = people_search(name) or []
-        return {
-            "ok": True,
-            "sources": [
-                {"title": r.get("title") or r.get("url"), "url": r.get("url")}
-                for r in results[:20]
-            ],
-        }
-    except Exception as e:
-        import traceback; traceback.print_exc()
-        return {"ok": False, "error": f"people_failed:{type(e).__name__}"}
 
 @app.post("/upload_pdf")
 async def upload_pdf(file: UploadFile = File(...)):
