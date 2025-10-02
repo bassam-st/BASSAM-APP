@@ -4,15 +4,34 @@
   <meta charset="utf-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>بسام الذكي – بحث عميق</title>
+
+  <!-- Manifest + Theme -->
   <link rel="manifest" href="/static/pwa/manifest.json">
-  <meta name="theme-color" content="#0b0f19"/>
+  <meta name="theme-color" content="#4B0082"/>
+
+  <!-- (اختياري لكن مفيد) أيقونات المتصفح -->
+  <link rel="icon" type="image/png" sizes="192x192" href="/static/icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="/static/icons/icon-512.png">
+  <!-- دعم iOS كتطبيق -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png"/>
+
   <link rel="stylesheet" href="/static/style.css"/>
+  <style>
+    /* تنسيق بسيط لزر التثبيت */
+    #installBtn[hidden] { display: none; }
+    #installBtn {
+      padding: 10px 14px; border: 0; border-radius: 10px; cursor: pointer;
+      background: #4B0082; color:#fff; font-weight:600;
+    }
+  </style>
 </head>
 <body>
 <header class="top">
   <h1>بسام الذكي — بحث عميق وتلخيص تلقائي</h1>
   <div class="actions">
-    <button id="installBtn" hidden>تثبيت التطبيق</button>
+    <button id="installBtn" hidden>📲 تثبيت التطبيق</button>
     <button id="themeBtn" title="الوضع الليلي/النهاري">🌙/☀️</button>
   </div>
 </header>
@@ -63,12 +82,63 @@
 
 <footer class="muted">© Bassam — يعمل كتطبيق PWA ويمكن تثبيته على الجوال</footer>
 
+<!-- سكربتات التطبيق الحالية -->
 <script src="/static/script.js"></script>
+
+<!-- تفعيل خدمة الـ PWA (Service Worker + زر التثبيت) -->
 <script>
+  // 1) تسجيل الـ Service Worker
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/static/pwa/service-worker.js')
+      .then(() => console.log('SW registered'))
       .catch(console.error);
   }
+
+  // 2) منطق زر التثبيت عبر beforeinstallprompt
+  let deferredPrompt = null;
+  const installBtn = document.getElementById('installBtn');
+
+  // إخفاء الزر إذا كنا بالفعل داخل وضع "standalone"
+  const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+                    || window.navigator.standalone === true;
+  if (isStandalone) {
+    installBtn?.setAttribute('hidden', 'true');
+  }
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    // منع البروشور الافتراضي حتى نعرض الزر
+    e.preventDefault();
+    deferredPrompt = e;
+    if (!isStandalone && installBtn) installBtn.removeAttribute('hidden');
+  });
+
+  installBtn?.addEventListener('click', async () => {
+    installBtn.setAttribute('hidden', 'true');
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    console.log('Install choice:', choice.outcome);
+    deferredPrompt = null;
+  });
+
+  // عند اكتمال التثبيت
+  window.addEventListener('appinstalled', () => {
+    console.log('Bassam PWA installed');
+    installBtn?.setAttribute('hidden', 'true');
+  });
+
+  // 3) (اختياري) تبديل الثيم
+  document.getElementById('themeBtn')?.addEventListener('click', () => {
+    const dark = document.documentElement.style.getPropertyValue('--bg') ? false : true;
+    // نفترض أن style.css يحترم متغيرات :root
+    if (dark) {
+      document.documentElement.style.setProperty('--bg', '#0b0f19');
+      document.documentElement.style.setProperty('--fg', '#eaeef8');
+    } else {
+      document.documentElement.style.removeProperty('--bg');
+      document.documentElement.style.removeProperty('--fg');
+    }
+  });
 </script>
 </body>
 </html>
