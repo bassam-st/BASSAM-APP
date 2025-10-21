@@ -1,3 +1,5 @@
+import os, time, traceback, re, sys
+sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
 # main.py — Bassam App (بحث مجاني + واجهة ويب + PWA + Omni Brain)
 import os, time, traceback, re
 from typing import Optional, List, Dict
