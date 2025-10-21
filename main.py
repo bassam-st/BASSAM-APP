@@ -1,14 +1,22 @@
-# main.py — Bassam App (بحث مجاني + واجهة ويب + PWA)
+# main.py — Bassam App (بحث مجاني + واجهة ويب + PWA + Omni Brain)
 import os, time, traceback, re
 from typing import Optional, List, Dict
 
 from fastapi import FastAPI, Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+# بحثك الحالي من مجلد core/
 from core.search import deep_search, people_search
 from core.utils import ensure_dirs
+
+# العقل الجديد من src/brain/
+try:
+    from src.brain.omni_brain import omni_answer
+except Exception as _e:
+    omni_answer = None
+    print("[WARN] omni_brain not available:", _e)
 
 # مسارات
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -18,7 +26,7 @@ UPLOADS_DIR = os.path.join(BASE_DIR, "uploads")
 CACHE_DIR = os.path.join(BASE_DIR, "cache")
 ensure_dirs(TEMPLATES_DIR, STATIC_DIR, UPLOADS_DIR, CACHE_DIR)
 
-app = FastAPI(title="Bassam — Deep Search (Free)")
+app = FastAPI(title="Bassam — Deep Search + Omni", version="3.3")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
@@ -55,7 +63,6 @@ _BASSAM_BIO = (
     "وينتمي إلى قبيلة المنصوري من قبائل اليمن."
 )
 
-# كلمات مفتاحية متنوعة للتعرّف على النية حتى مع اختلاف الصياغة/الإملاء
 _BASSAM_PATTERNS = [
     r"\bبسام\s*الشتيمي\b",
     r"\bمن\s*هو\s*بسام\s*الشتيمي\b",
@@ -69,9 +76,7 @@ _BASSAM_PATTERNS = [
 def _normalize_ar(s: str) -> str:
     if not s: return ""
     s = s.strip()
-    # تبسيط بعض الاختلافات الإملائية
     s = s.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ى","ي").replace("ة","ه")
-    # مسافات إضافية إلى مسافة واحدة
     s = re.sub(r"\s+", " ", s)
     return s
 
@@ -84,7 +89,7 @@ def _maybe_bassam_answer(text: str) -> Optional[str]:
     return None
 
 # -------------------------
-# المسارات
+# صفحات أساسية
 # -------------------------
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
@@ -94,11 +99,13 @@ def index(request: Request):
 def healthz():
     return {"status":"ok"}
 
-# مسار تعريفي مباشر (اختياري لواجهة /about)
 @app.get("/about_bassam")
 def about_bassam():
     return {"ok": True, "answer": _BASSAM_BIO}
 
+# -------------------------
+# Deep Search API (موجود لديك)
+# -------------------------
 @app.post("/search")
 async def search_api(request: Request, q: Optional[str] = Form(None), want_prices: Optional[bool] = Form(False)):
     t0 = time.time()
@@ -114,17 +121,16 @@ async def search_api(request: Request, q: Optional[str] = Form(None), want_price
         if not q:
             return JSONResponse({"ok":False,"error":"query_is_empty"}, 400)
 
-        # 👇 أولاً: تحقق إن كان السؤال عن "من هو بسام الشتيمي"
+        # تعريف بسام؟
         bassam_answer = _maybe_bassam_answer(q)
         if bassam_answer:
             return {
                 "ok": True,
                 "latency_ms": int((time.time()-t0)*1000),
                 "answer": bassam_answer,
-                "sources": []  # إجابة تعريفية ثابتة
+                "sources": []
             }
 
-        # المعالجة الاعتيادية للبحث
         hits = deep_search(q, include_prices=_parse_bool(want_prices))
         text_blob = _sources_to_text(hits, limit=12)
         answer = _simple_summarize(text_blob, 5) or "تم العثور على نتائج — راجع الروابط."
@@ -151,7 +157,6 @@ async def people_api(request: Request, name: Optional[str] = Form(None)):
         if not name:
             return JSONResponse({"ok":False,"error":"name_is_empty"}, 400)
 
-        # 👇 أيضاً نعطي التعريف لو كان اسم الشخص هو بسام الشتيمي
         bassam_answer = _maybe_bassam_answer(name)
         if bassam_answer:
             return {"ok": True, "sources": [], "answer": bassam_answer}
@@ -162,6 +167,59 @@ async def people_api(request: Request, name: Optional[str] = Form(None)):
         traceback.print_exc()
         return JSONResponse({"ok":False,"error":f"people_failed:{type(e).__name__}"}, 500)
 
+# -------------------------
+# Omni Brain API + صفحة اختبار
+# -------------------------
+@app.post("/api/omni")
+async def api_omni(request: Request, message: Optional[str] = Form(None)):
+    if omni_answer is None:
+        return JSONResponse({"ok": False, "error": "omni_brain_not_available"}, status_code=500)
+
+    try:
+        if not message:
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            message = (body.get("message") or "").strip()
+
+        if not message:
+            return JSONResponse({"ok": False, "error": "message_is_empty"}, status_code=400)
+
+        ans = omni_answer(message)
+        return JSONResponse({"ok": True, "answer": ans})
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse({"ok": False, "error": f"omni_failed:{type(e).__name__}"}, status_code=500)
+
+@app.get("/omni", response_class=HTMLResponse)
+def omni_form(request: Request):
+    # صفحة HTML بسيطة لاختبار العقل
+    html = """
+<!doctype html><meta charset="utf-8"><title>Bassam Omni</title>
+<style>
+:root{--bg:#0b1220;--card:#121a2b;--muted:#a5b4d4;--line:#23314f;--accent:#7c5cff}
+*{box-sizing:border-box} body{margin:0;background:var(--bg);color:#e9edf7;font-family:system-ui,Segoe UI,Arial}
+.wrap{max-width:900px;margin:40px auto;padding:0 16px}
+.card{background:var(--card);border:1px solid var(--line);padding:16px;border-radius:14px}
+textarea{width:100%;height:140px;padding:12px;border-radius:10px;border:1px solid var(--line);background:#0c1526;color:#e9edf7}
+button{margin-top:10px;padding:10px 18px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-weight:700;cursor:pointer}
+pre{white-space:pre-wrap;background:#0f1830;border:1px solid var(--line);padding:12px;border-radius:12px}
+</style>
+<div class="wrap">
+  <h1>🧠 Bassam Omni</h1>
+  <form method="post" action="/api/omni">
+    <textarea name="message" placeholder="اسأل أي شيء… (بحث ويب عميق + ويكيبيديا + RAG + رياضيات)"></textarea>
+    <button>إرسال</button>
+  </form>
+  <p>يمكنك أيضًا استدعاء واجهة JSON: <code>POST /api/omni</code> مع <code>{"message": "سؤالك"}</code></p>
+</div>
+"""
+    return HTMLResponse(html)
+
+# -------------------------
+# رفع الملفات
+# -------------------------
 @app.post("/upload_pdf")
 async def upload_pdf(file: UploadFile = File(...)):
     try:
