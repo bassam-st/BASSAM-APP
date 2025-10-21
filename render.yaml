@@ -1,26 +1,24 @@
 services:
-- type: web
-  name: bassam-smart-ai
-  runtime: python
-  region: oregon
-  plan: free
-
-  buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-  startCommand: gunicorn -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --workers 1 --timeout 120 main:app
-
-  envVars:
-  - key: PYTHON_VERSION
-    value: 3.11.7
-  - key: PYTHONUNBUFFERED
-    value: "1"
-  - key: WEB_CONCURRENCY
-    value: "1"
-
-  # صحّح مسار الصحة ليتطابق مع الكود
-  healthCheckPath: /healthz
-
-  # قرص مؤقت (اختياري وخفيف)
-  disk:
-    name: bassam-cache
-    mountPath: /opt/render/project/src/cache
-    sizeGB: 1
+  - type: web
+    name: bassam-app
+    env: python
+    plan: free
+    region: frankfurt
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn -k uvicorn.workers.UvicornWorker main:app --workers 1 --timeout 180"
+    autoDeploy: true
+    envVars:
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: OMNI_WEB
+        value: "1"          # 1 تشغيل بحث الويب، 0 تعطيل
+      - key: OMNI_WIKI_SENTENCES
+        value: "5"          # طول ملخص ويكيبيديا
+      - key: OMNI_DDG_MAX
+        value: "8"          # نتائج DuckDuckGo الأولية
+      - key: OMNI_MAX_PAGES
+        value: "5"          # عدد الصفحات التي نجلب محتواها
+      - key: OMNI_HTTP_TIMEOUT
+        value: "15"         # مهلة الجلب بالثواني
+      - key: OMNI_CACHE_MB
+        value: "256"        # حجم الكاش بالميجابايت
