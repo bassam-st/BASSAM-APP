@@ -1,24 +1,25 @@
+# main.py — Bassam App (بحث + واجهة + Omni Brain مع حماية)
 import os, time, traceback, re, sys
-sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
-# main.py — Bassam App (بحث مجاني + واجهة ويب + PWA + Omni Brain)
-import os, time, traceback, re
 from typing import Optional, List, Dict
 
+# اجعل بايثون يرى مجلد src/
+sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
+
 from fastapi import FastAPI, Request, Form, UploadFile, File
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-# بحثك الحالي من مجلد core/
+# بحثك الحالي من core/
 from core.search import deep_search, people_search
 from core.utils import ensure_dirs
 
-# العقل الجديد من src/brain/
+# العقل من src/brain/ (محمي)
 try:
     from src.brain.omni_brain import omni_answer
 except Exception as _e:
     omni_answer = None
-    print("[WARN] omni_brain not available:", _e)
+    print("[WARN] omni_brain import failed:", _e)
 
 # مسارات
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -32,7 +33,7 @@ app = FastAPI(title="Bassam — Deep Search + Omni", version="3.3")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# ------------------------- أدوات مساعدة -------------------------
+# ------------------------- أدوات صغيرة -------------------------
 def _parse_bool(v) -> bool:
     if isinstance(v, bool): return v
     if v is None: return False
@@ -84,13 +85,14 @@ def index(request: Request):
 
 @app.get("/healthz")
 def healthz():
-    return {"status":"ok"}
+    # معلومة بسيطة مفيدة بالوضع الحالي
+    return {"status":"ok", "omni_loaded": bool(omni_answer)}
 
 @app.get("/about_bassam")
 def about_bassam():
     return {"ok": True, "answer": _BASSAM_BIO}
 
-# ------------------------- البحث الرئيسي (صار يستخدم Omni) -------------------------
+# ------------------------- البحث الرئيسي -------------------------
 @app.post("/search")
 async def search_api(request: Request, q: Optional[str] = Form(None), want_prices: Optional[bool] = Form(False)):
     t0 = time.time()
@@ -109,12 +111,9 @@ async def search_api(request: Request, q: Optional[str] = Form(None), want_price
         # تعريف بسام؟
         bassam_answer = _maybe_bassam_answer(q)
         if bassam_answer:
-            return {
-                "ok": True, "latency_ms": int((time.time()-t0)*1000),
-                "answer": bassam_answer, "sources": []
-            }
+            return {"ok": True, "latency_ms": int((time.time()-t0)*1000), "answer": bassam_answer, "sources": []}
 
-        # إن تم تفعيل "روابط الأسعار" نستخدم البحث التقليدي
+        # لو فعّلت روابط الأسعار → استخدم البحث التقليدي
         if _parse_bool(want_prices):
             hits = deep_search(q, include_prices=True)
             text_blob = _sources_to_text(hits, limit=12)
@@ -125,15 +124,24 @@ async def search_api(request: Request, q: Optional[str] = Form(None), want_price
                 "sources": [{"title":h.get("title") or h.get("url"), "url":h.get("url")} for h in hits[:12]]
             }
 
-        # الافتراضي الآن: استخدم العقل الذكي Omni
+        # الافتراضي: استخدم العقل Omni لكن داخل try/except حتى لا ينهار الخادم
         if omni_answer is not None:
-            ans = omni_answer(q)
-            return {
-                "ok": True, "latency_ms": int((time.time()-t0)*1000),
-                "answer": ans, "sources": []  # يمكن لاحقًا إضافة روابط من DDG إن رغبت
-            }
+            try:
+                ans = omni_answer(q)
+                return {"ok": True, "latency_ms": int((time.time()-t0)*1000), "answer": ans, "sources": []}
+            except Exception as e:
+                traceback.print_exc()
+                # سقوط آمن إلى البحث التقليدي بدل 502
+                hits = deep_search(q, include_prices=False)
+                text_blob = _sources_to_text(hits, limit=12)
+                answer = _simple_summarize(text_blob, 5) or f"omni_failed:{type(e).__name__} — تم العثور على روابط."
+                return {
+                    "ok": True, "latency_ms": int((time.time()-t0)*1000),
+                    "answer": answer,
+                    "sources": [{"title":h.get("title") or h.get("url"), "url":h.get("url")} for h in hits[:12]]
+                }
 
-        # fallback لو omni غير متاح
+        # لو omni غير متاح: بحث تقليدي
         hits = deep_search(q, include_prices=False)
         text_blob = _sources_to_text(hits, limit=12)
         answer = _simple_summarize(text_blob, 5) or "تم العثور على نتائج — راجع الروابط."
@@ -176,7 +184,6 @@ async def people_api(request: Request, name: Optional[str] = Form(None)):
 async def api_omni(request: Request, message: Optional[str] = Form(None)):
     if omni_answer is None:
         return JSONResponse({"ok": False, "error": "omni_brain_not_available"}, status_code=500)
-
     try:
         if not message:
             try:
@@ -188,11 +195,16 @@ async def api_omni(request: Request, message: Optional[str] = Form(None)):
         if not message:
             return JSONResponse({"ok": False, "error": "message_is_empty"}, status_code=400)
 
-        ans = omni_answer(message)
+        try:
+            ans = omni_answer(message)
+        except Exception as e:
+            traceback.print_exc()
+            return JSONResponse({"ok": False, "error": f"omni_failed:{type(e).__name__}"}, status_code=500)
+
         return JSONResponse({"ok": True, "answer": ans})
     except Exception as e:
         traceback.print_exc()
-        return JSONResponse({"ok": False, "error": f"omni_failed:{type(e).__name__}"}, status_code=500)
+        return JSONResponse({"ok": False, "error": f"omni_route_failed:{type(e).__name__}"}, status_code=500)
 
 @app.get("/omni", response_class=HTMLResponse)
 def omni_form(request: Request):
@@ -213,7 +225,7 @@ pre{white-space:pre-wrap;background:#0f1830;border:1px solid var(--line);padding
     <textarea name="message" placeholder="اسأل أي شيء… (بحث ويب عميق + ويكيبيديا + RAG + رياضيات)"></textarea>
     <button>إرسال</button>
   </form>
-  <p>يمكنك أيضًا استدعاء واجهة JSON: <code>POST /api/omni</code> مع <code>{"message": "سؤالك"}</code></p>
+  <p>واجهة JSON: <code>POST /api/omni</code> مع <code>{"message":"سؤالك"}</code></p>
 </div>
 """
     return HTMLResponse(html)
