@@ -30,9 +30,7 @@ app = FastAPI(title="Bassam — Deep Search + Omni", version="3.3")
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# -------------------------
-# أدوات مساعدة محلية
-# -------------------------
+# ------------------------- أدوات مساعدة -------------------------
 def _parse_bool(v) -> bool:
     if isinstance(v, bool): return v
     if v is None: return False
@@ -53,33 +51,22 @@ def _simple_summarize(text: str, max_sentences: int = 5) -> str:
 def _sources_to_text(sources: List[Dict], limit: int = 12) -> str:
     return " ".join([(s.get("snippet") or "") for s in (sources or [])][:limit])
 
-# -------------------------
-# تعريف ثابت: من هو بسام الشتيمي؟
-# -------------------------
+# ------------------------- تعريف بسام -------------------------
 _BASSAM_BIO = (
     "بسام الشتيمي حفظه الله هو مصمم تطبيق بسام الذكي، "
-    "وهو شخص ناجح في عمله، ودود ولطيف، "
-    "يتمتع بذكاء وروح التعلم وحب القراءة، "
+    "وهو شخص ناجح في عمله، ودود ولطيف، يتمتع بذكاء وروح التعلم وحب القراءة، "
     "وينتمي إلى قبيلة المنصوري من قبائل اليمن."
 )
-
 _BASSAM_PATTERNS = [
-    r"\bبسام\s*الشتيمي\b",
-    r"\bمن\s*هو\s*بسام\s*الشتيمي\b",
-    r"\bمصمم\s*هذا\s*التطبيق\b",
-    r"\bمن\s*صمّم\s*التطبيق\b",
-    r"\bمؤسس\s*بسام\b",
-    r"\bصاحب\s*التطبيق\b",
-    r"\bمن\s*هو\s*بسام\b",
+    r"\bبسام\s*الشتيمي\b", r"\bمن\s*هو\s*بسام\s*الشتيمي\b", r"\bمصمم\s*هذا\s*التطبيق\b",
+    r"\bمن\s*صمّم\s*التطبيق\b", r"\bمؤسس\s*بسام\b", r"\bصاحب\s*التطبيق\b", r"\bمن\s*هو\s*بسام\b",
 ]
-
 def _normalize_ar(s: str) -> str:
     if not s: return ""
     s = s.strip()
     s = s.replace("أ","ا").replace("إ","ا").replace("آ","ا").replace("ى","ي").replace("ة","ه")
     s = re.sub(r"\s+", " ", s)
     return s
-
 def _maybe_bassam_answer(text: str) -> Optional[str]:
     q = _normalize_ar(text or "").lower()
     if not q: return None
@@ -88,9 +75,7 @@ def _maybe_bassam_answer(text: str) -> Optional[str]:
             return _BASSAM_BIO
     return None
 
-# -------------------------
-# صفحات أساسية
-# -------------------------
+# ------------------------- صفحات أساسية -------------------------
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
@@ -103,9 +88,7 @@ def healthz():
 def about_bassam():
     return {"ok": True, "answer": _BASSAM_BIO}
 
-# -------------------------
-# Deep Search API (موجود لديك)
-# -------------------------
+# ------------------------- البحث الرئيسي (صار يستخدم Omni) -------------------------
 @app.post("/search")
 async def search_api(request: Request, q: Optional[str] = Form(None), want_prices: Optional[bool] = Form(False)):
     t0 = time.time()
@@ -125,25 +108,44 @@ async def search_api(request: Request, q: Optional[str] = Form(None), want_price
         bassam_answer = _maybe_bassam_answer(q)
         if bassam_answer:
             return {
-                "ok": True,
-                "latency_ms": int((time.time()-t0)*1000),
-                "answer": bassam_answer,
-                "sources": []
+                "ok": True, "latency_ms": int((time.time()-t0)*1000),
+                "answer": bassam_answer, "sources": []
             }
 
-        hits = deep_search(q, include_prices=_parse_bool(want_prices))
+        # إن تم تفعيل "روابط الأسعار" نستخدم البحث التقليدي
+        if _parse_bool(want_prices):
+            hits = deep_search(q, include_prices=True)
+            text_blob = _sources_to_text(hits, limit=12)
+            answer = _simple_summarize(text_blob, 5) or "تم العثور على نتائج — راجع الروابط."
+            return {
+                "ok": True, "latency_ms": int((time.time()-t0)*1000),
+                "answer": answer,
+                "sources": [{"title":h.get("title") or h.get("url"), "url":h.get("url")} for h in hits[:12]]
+            }
+
+        # الافتراضي الآن: استخدم العقل الذكي Omni
+        if omni_answer is not None:
+            ans = omni_answer(q)
+            return {
+                "ok": True, "latency_ms": int((time.time()-t0)*1000),
+                "answer": ans, "sources": []  # يمكن لاحقًا إضافة روابط من DDG إن رغبت
+            }
+
+        # fallback لو omni غير متاح
+        hits = deep_search(q, include_prices=False)
         text_blob = _sources_to_text(hits, limit=12)
         answer = _simple_summarize(text_blob, 5) or "تم العثور على نتائج — راجع الروابط."
         return {
-            "ok": True,
-            "latency_ms": int((time.time()-t0)*1000),
+            "ok": True, "latency_ms": int((time.time()-t0)*1000),
             "answer": answer,
             "sources": [{"title":h.get("title") or h.get("url"), "url":h.get("url")} for h in hits[:12]]
         }
+
     except Exception as e:
         traceback.print_exc()
         return JSONResponse({"ok":False,"error":f"search_failed:{type(e).__name__}"}, 500)
 
+# ------------------------- People -------------------------
 @app.post("/people")
 async def people_api(request: Request, name: Optional[str] = Form(None)):
     try:
@@ -167,9 +169,7 @@ async def people_api(request: Request, name: Optional[str] = Form(None)):
         traceback.print_exc()
         return JSONResponse({"ok":False,"error":f"people_failed:{type(e).__name__}"}, 500)
 
-# -------------------------
-# Omni Brain API + صفحة اختبار
-# -------------------------
+# ------------------------- Omni Brain API + صفحة اختبار -------------------------
 @app.post("/api/omni")
 async def api_omni(request: Request, message: Optional[str] = Form(None)):
     if omni_answer is None:
@@ -194,7 +194,6 @@ async def api_omni(request: Request, message: Optional[str] = Form(None)):
 
 @app.get("/omni", response_class=HTMLResponse)
 def omni_form(request: Request):
-    # صفحة HTML بسيطة لاختبار العقل
     html = """
 <!doctype html><meta charset="utf-8"><title>Bassam Omni</title>
 <style>
@@ -217,9 +216,7 @@ pre{white-space:pre-wrap;background:#0f1830;border:1px solid var(--line);padding
 """
     return HTMLResponse(html)
 
-# -------------------------
-# رفع الملفات
-# -------------------------
+# ------------------------- رفع الملفات -------------------------
 @app.post("/upload_pdf")
 async def upload_pdf(file: UploadFile = File(...)):
     try:
